@@ -10,5 +10,8 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     }
+  },
+  "dependencies": {
+    "@autootp/shared": "^0.1.0"
   }
 }
