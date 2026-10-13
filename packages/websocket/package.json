@@ -10,5 +10,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     }
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.14"
   }
 }

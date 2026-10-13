@@ -7,7 +7,9 @@ import {
   TokenStore,
   getOrCreateKey,
   ensureHomeDir,
-  StoredTokens
+  StoredTokens,
+  getOrCreatePairToken,
+  rotatePairToken
 } from "./index.js";
 
 describe("VERSION", () => {
@@ -162,3 +164,56 @@ describe("Encrypted Local Storage (TokenStore)", () => {
     expect((tokensStat.mode & 0o777).toString(8)).toBe("600");
   });
 });
+
+describe("Pairing Token (pair.token)", () => {
+  let tempDir: string;
+  const originalHome = process.env.AUTOOTP_HOME;
+
+  beforeEach(() => {
+    const tmpBase = process.env.TMPDIR || process.env.TEMP || "/tmp";
+    tempDir = fs.mkdtempSync(path.join(tmpBase, "autootp-pair-test-"));
+    process.env.AUTOOTP_HOME = tempDir;
+  });
+
+  afterEach(() => {
+    if (originalHome !== undefined) {
+      process.env.AUTOOTP_HOME = originalHome;
+    } else {
+      delete process.env.AUTOOTP_HOME;
+    }
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("is stable across multiple calls and does not regenerate", () => {
+    const token1 = getOrCreatePairToken(tempDir);
+    expect(Buffer.from(token1, "base64url").length).toBe(32);
+
+    const token2 = getOrCreatePairToken(tempDir);
+    expect(token1).toBe(token2);
+  });
+
+  it("rotatePairToken generates a new token and updates file", () => {
+    const token1 = getOrCreatePairToken(tempDir);
+    const token2 = rotatePairToken(tempDir);
+    expect(token2).not.toBe(token1);
+    expect(Buffer.from(token2, "base64url").length).toBe(32);
+
+    const token3 = getOrCreatePairToken(tempDir);
+    expect(token3).toBe(token2);
+  });
+
+  it("enforces mode 600 for pair.token on non-Windows platforms", () => {
+    if (process.platform === "win32") return;
+    getOrCreatePairToken(tempDir);
+    const tokenPath = path.join(tempDir, "pair.token");
+    const stat1 = fs.statSync(tokenPath);
+    expect((stat1.mode & 0o777).toString(8)).toBe("600");
+
+    rotatePairToken(tempDir);
+    const stat2 = fs.statSync(tokenPath);
+    expect((stat2.mode & 0o777).toString(8)).toBe("600");
+  });
+});
+
