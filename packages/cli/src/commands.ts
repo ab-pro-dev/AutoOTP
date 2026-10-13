@@ -1,17 +1,20 @@
 import { TokenStore, getHomeDir } from "@autootp/shared";
-import { loginWithBrowser } from "@autootp/gmail";
+import { loginWithBrowser, watchAccount, ReauthRequiredError } from "@autootp/gmail";
 import {
   validateAlias,
   checkCredentialsPermissions,
   openBrowser,
   formatAccountsTable,
   revokeToken,
+  formatOtpNotification,
   AccountEntry
 } from "./utils.js";
 
 export interface CommandContext {
   homeDir?: string;
   fetchImpl?: typeof fetch;
+  signal?: AbortSignal;
+  pollMs?: number;
 }
 
 export async function loginAction(
@@ -86,3 +89,59 @@ export async function removeAction(
     `Removed account '${alias}'. Google token revoke: ${revoked ? "succeeded" : "failed"}.`
   );
 }
+
+export async function watchAction(context: CommandContext = {}): Promise<void> {
+  const homeDir = context.homeDir ?? getHomeDir();
+  const store = new TokenStore(homeDir);
+  const aliases = await store.list();
+
+  if (aliases.length === 0) {
+    throw new Error("No accounts connected. Run: autootp login");
+  }
+
+  const abortController = new AbortController();
+  const signal = context.signal
+    ? AbortSignal.any([context.signal, abortController.signal])
+    : abortController.signal;
+
+  let sigintReceived = false;
+  const onSigint = () => {
+    sigintReceived = true;
+    abortController.abort();
+  };
+
+  process.once("SIGINT", onSigint);
+
+  try {
+    const watcherPromises = aliases.map((alias) =>
+      watchAccount({
+        accountId: alias,
+        homeDir,
+        fetchImpl: context.fetchImpl,
+        pollMs: context.pollMs,
+        signal,
+        onOtp: (otp) => {
+          console.log(formatOtpNotification(otp));
+        },
+        onError: (err) => {
+          if (
+            err instanceof ReauthRequiredError ||
+            err.name === "ReauthRequiredError"
+          ) {
+            console.log(
+              `${alias}: Google access expired. Run: autootp login ${alias} again.`
+            );
+          }
+        }
+      })
+    );
+
+    await Promise.all(watcherPromises);
+  } finally {
+    process.removeListener("SIGINT", onSigint);
+    if (sigintReceived) {
+      process.exit(0);
+    }
+  }
+}
+

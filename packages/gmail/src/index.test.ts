@@ -9,7 +9,11 @@ import {
   loadCredentials,
   loginWithBrowser,
   refreshAccessToken,
-  ReauthRequiredError
+  ReauthRequiredError,
+  watchAccount,
+  htmlToText,
+  parseSender,
+  OtpNotification
 } from "./index.js";
 
 describe("OAuth Login Flow (packages/gmail)", () => {
@@ -284,3 +288,402 @@ describe("OAuth Login Flow (packages/gmail)", () => {
     ).rejects.toThrow(ReauthRequiredError);
   });
 });
+
+describe("Gmail Watcher (packages/gmail)", () => {
+  let tempDir: string;
+  const originalHome = process.env.AUTOOTP_HOME;
+
+  beforeEach(() => {
+    const tmpBase = process.env.TMPDIR || process.env.TEMP || "/tmp";
+    tempDir = fs.mkdtempSync(path.join(tmpBase, "autootp-watcher-test-"));
+    process.env.AUTOOTP_HOME = tempDir;
+
+    fs.writeFileSync(
+      path.join(tempDir, "credentials.json"),
+      JSON.stringify({
+        installed: {
+          client_id: "test-client-id.apps.googleusercontent.com",
+          client_secret: "test-client-secret-123"
+        }
+      })
+    );
+  });
+
+  afterEach(() => {
+    if (originalHome !== undefined) {
+      process.env.AUTOOTP_HOME = originalHome;
+    } else {
+      delete process.env.AUTOOTP_HOME;
+    }
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("htmlToText strips scripts, styles, HTML tags and decodes entities", () => {
+    const rawHtml = `
+      <html>
+        <head>
+          <style>body { color: red; }</style>
+          <script>console.log("secret");</script>
+        </head>
+        <body>
+          <p>Your &lt;security&gt; code is: <strong>123456</strong> &amp; valid for 5 min.</p>
+          <div>Don&#39;t share it.</div>
+        </body>
+      </html>
+    `;
+    const converted = htmlToText(rawHtml);
+    expect(converted).not.toContain("color: red;");
+    expect(converted).not.toContain("console.log");
+    expect(converted).not.toContain("<p>");
+    expect(converted).not.toContain("<strong>");
+    expect(converted).toContain("Your <security> code is: 123456 & valid for 5 min.");
+    expect(converted).toContain("Don't share it.");
+  });
+
+  it("parseSender extracts display name or falls back to email domain", () => {
+    expect(parseSender('"GitHub" <noreply@github.com>')).toBe("GitHub");
+    expect(parseSender("GitHub Security <security@github.com>")).toBe("GitHub Security");
+    expect(parseSender("<support@stripe.com>")).toBe("stripe.com");
+    expect(parseSender("auth@service.com")).toBe("service.com");
+    expect(parseSender("")).toBe("unknown");
+  });
+
+  it("dedupe: duplicate message returned across polls produces only one onOtp call", async () => {
+    const store = new TokenStore(tempDir);
+    await store.set("acc-dedupe", {
+      refreshToken: "refresh-token-dedupe",
+      email: "dedupe@example.com",
+      addedAt: Date.now()
+    });
+
+    const otps: OtpNotification[] = [];
+    const controller = new AbortController();
+    let pollCount = 0;
+
+    const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+      const urlStr = input.toString();
+      if (urlStr.includes("oauth2.googleapis.com/token")) {
+        return new Response(
+          JSON.stringify({ access_token: "mock-access-token", expires_in: 3600 }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (urlStr.includes("/messages?q=")) {
+        pollCount++;
+        if (pollCount >= 3) {
+          controller.abort();
+        }
+        return new Response(
+          JSON.stringify({ messages: [{ id: "msg-duplicate-1" }] }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (urlStr.includes("/messages/msg-duplicate-1?format=full")) {
+        return new Response(
+          JSON.stringify({
+            id: "msg-duplicate-1",
+            internalDate: String(Date.now()),
+            payload: {
+              headers: [
+                { name: "Subject", value: "Your verification code" },
+                { name: "From", value: "Google <no-reply@accounts.google.com>" }
+              ],
+              mimeType: "text/plain",
+              body: {
+                data: Buffer.from("Your verification code is 456789.").toString("base64url")
+              }
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response("Not found", { status: 404 });
+    };
+
+    await watchAccount({
+      accountId: "acc-dedupe",
+      pollMs: 10,
+      signal: controller.signal,
+      fetchImpl: mockFetch as typeof fetch,
+      homeDir: tempDir,
+      onOtp: (otp) => {
+        otps.push(otp);
+      }
+    });
+
+    expect(otps).toHaveLength(1);
+    expect(otps[0].code).toBe("456789");
+    expect(otps[0].sender).toBe("Google");
+  });
+
+  it("html: multipart email with HTML body only results in stripped text and extracted OTP", async () => {
+    const store = new TokenStore(tempDir);
+    await store.set("acc-html", {
+      refreshToken: "refresh-token-html",
+      email: "html@example.com",
+      addedAt: Date.now()
+    });
+
+    const otps: OtpNotification[] = [];
+    const controller = new AbortController();
+
+    const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+      const urlStr = input.toString();
+      if (urlStr.includes("oauth2.googleapis.com/token")) {
+        return new Response(
+          JSON.stringify({ access_token: "mock-access-token", expires_in: 3600 }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (urlStr.includes("/messages?q=")) {
+        return new Response(
+          JSON.stringify({ messages: [{ id: "msg-html-only" }] }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (urlStr.includes("/messages/msg-html-only?format=full")) {
+        return new Response(
+          JSON.stringify({
+            id: "msg-html-only",
+            internalDate: String(Date.now()),
+            payload: {
+              headers: [
+                { name: "Subject", value: "Login passcode" },
+                { name: "From", value: "Support Team <support@company.org>" }
+              ],
+              mimeType: "multipart/alternative",
+              parts: [
+                {
+                  mimeType: "text/html",
+                  body: {
+                    data: Buffer.from(
+                      "<html><head><style>p { color: blue; }</style></head><body><p>Use security code <strong>987123</strong> to sign in.</p></body></html>"
+                    ).toString("base64url")
+                  }
+                }
+              ]
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response("Not found", { status: 404 });
+    };
+
+    await watchAccount({
+      accountId: "acc-html",
+      pollMs: 10,
+      signal: controller.signal,
+      fetchImpl: mockFetch as typeof fetch,
+      homeDir: tempDir,
+      onOtp: (otp) => {
+        otps.push(otp);
+        controller.abort();
+      }
+    });
+
+    expect(otps).toHaveLength(1);
+    expect(otps[0].code).toBe("987123");
+    expect(otps[0].sender).toBe("Support Team");
+  });
+
+  it("backoff: 429 and 5xx responses trigger exponential backoff and recovery", async () => {
+    const store = new TokenStore(tempDir);
+    await store.set("acc-backoff", {
+      refreshToken: "refresh-token-backoff",
+      email: "backoff@example.com",
+      addedAt: Date.now()
+    });
+
+    const recordedErrors: string[] = [];
+    const controller = new AbortController();
+    let attempt = 0;
+
+    const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+      const urlStr = input.toString();
+      if (urlStr.includes("oauth2.googleapis.com/token")) {
+        return new Response(
+          JSON.stringify({ access_token: "mock-access-token", expires_in: 3600 }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (urlStr.includes("/messages?q=")) {
+        attempt++;
+        if (attempt === 1) {
+          return new Response("Rate limit exceeded", { status: 429 });
+        }
+        if (attempt === 2) {
+          return new Response("Server error", { status: 503 });
+        }
+        controller.abort();
+        return new Response(JSON.stringify({ messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      return new Response("Not found", { status: 404 });
+    };
+
+    await watchAccount({
+      accountId: "acc-backoff",
+      pollMs: 5,
+      initialBackoffMs: 10,
+      maxBackoffMs: 50,
+      signal: controller.signal,
+      fetchImpl: mockFetch as typeof fetch,
+      homeDir: tempDir,
+      onOtp: () => {},
+      onError: (err) => {
+        recordedErrors.push(err.message);
+      }
+    });
+
+    expect(recordedErrors).toHaveLength(2);
+    expect(recordedErrors[0]).toContain("429");
+    expect(recordedErrors[1]).toContain("503");
+  });
+
+  it("reauth: ReauthRequiredError stops that loop without crashing", async () => {
+    const store = new TokenStore(tempDir);
+    await store.set("acc-reauth", {
+      refreshToken: "bad-refresh-token",
+      email: "reauth@example.com",
+      addedAt: Date.now()
+    });
+
+    let reportedError: Error | null = null;
+
+    const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+      const urlStr = input.toString();
+      if (urlStr.includes("oauth2.googleapis.com/token")) {
+        return new Response(
+          JSON.stringify({ error: "invalid_grant", error_description: "Token revoked" }),
+          { status: 400, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response("Not found", { status: 404 });
+    };
+
+    await watchAccount({
+      accountId: "acc-reauth",
+      pollMs: 10,
+      fetchImpl: mockFetch as typeof fetch,
+      homeDir: tempDir,
+      onOtp: () => {},
+      onError: (err) => {
+        reportedError = err;
+      }
+    });
+
+    expect(reportedError).toBeInstanceOf(ReauthRequiredError);
+  });
+
+  it("abort: signal cleanly terminates the watcher loop", async () => {
+    const store = new TokenStore(tempDir);
+    await store.set("acc-abort", {
+      refreshToken: "refresh-token-abort",
+      email: "abort@example.com",
+      addedAt: Date.now()
+    });
+
+    const controller = new AbortController();
+    let pollInvoked = false;
+
+    const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+      const urlStr = input.toString();
+      if (urlStr.includes("oauth2.googleapis.com/token")) {
+        return new Response(
+          JSON.stringify({ access_token: "mock-access-token", expires_in: 3600 }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (urlStr.includes("/messages?q=")) {
+        pollInvoked = true;
+        controller.abort();
+        return new Response(JSON.stringify({ messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      return new Response("Not found", { status: 404 });
+    };
+
+    await watchAccount({
+      accountId: "acc-abort",
+      pollMs: 10,
+      signal: controller.signal,
+      fetchImpl: mockFetch as typeof fetch,
+      homeDir: tempDir,
+      onOtp: () => {}
+    });
+
+    expect(pollInvoked).toBe(true);
+  });
+
+  it("non-OTP email produces no onOtp call", async () => {
+    const store = new TokenStore(tempDir);
+    await store.set("acc-newsletter", {
+      refreshToken: "refresh-token-newsletter",
+      email: "newsletter@example.com",
+      addedAt: Date.now()
+    });
+
+    let onOtpCalled = false;
+    const controller = new AbortController();
+
+    const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+      const urlStr = input.toString();
+      if (urlStr.includes("oauth2.googleapis.com/token")) {
+        return new Response(
+          JSON.stringify({ access_token: "mock-access-token", expires_in: 3600 }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (urlStr.includes("/messages?q=")) {
+        return new Response(
+          JSON.stringify({ messages: [{ id: "msg-newsletter-1" }] }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (urlStr.includes("/messages/msg-newsletter-1?format=full")) {
+        controller.abort();
+        return new Response(
+          JSON.stringify({
+            id: "msg-newsletter-1",
+            internalDate: String(Date.now()),
+            payload: {
+              headers: [
+                { name: "Subject", value: "Your Weekly Digest" },
+                { name: "From", value: "Digest <digest@techsite.com>" }
+              ],
+              mimeType: "text/plain",
+              body: {
+                data: Buffer.from("Here is what happened this week in open source software.").toString(
+                  "base64url"
+                )
+              }
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response("Not found", { status: 404 });
+    };
+
+    await watchAccount({
+      accountId: "acc-newsletter",
+      pollMs: 10,
+      signal: controller.signal,
+      fetchImpl: mockFetch as typeof fetch,
+      homeDir: tempDir,
+      onOtp: () => {
+        onOtpCalled = true;
+      }
+    });
+
+    expect(onOtpCalled).toBe(false);
+  });
+});
+

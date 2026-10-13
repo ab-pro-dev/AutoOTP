@@ -133,3 +133,19 @@ export async function revokeToken(
     return false;
   }
 }
+
+/**
+ * Formats an OTP notification into a single line: [HH:MM:SS] <sender> (<alias>) -> <code>
+ */
+export function formatOtpNotification(otp: {
+  accountId: string;
+  sender: string;
+  code: string;
+  receivedAt?: number;
+}): string {
+  const d = new Date(otp.receivedAt || Date.now());
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+  return `[${time}] ${otp.sender} (${otp.accountId}) -> ${otp.code}`;
+}
+

@@ -6,7 +6,8 @@
     "types": ["node"]
   },
   "references": [
-    { "path": "../shared" }
+    { "path": "../shared" },
+    { "path": "../otp-parser" }
   ],
   "include": ["src"],
   "exclude": ["**/*.test.ts", "dist"]

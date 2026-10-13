@@ -12,6 +12,7 @@
     }
   },
   "dependencies": {
-    "@autootp/shared": "^0.1.0"
+    "@autootp/shared": "^0.1.0",
+    "@autootp/otp-parser": "^0.1.0"
   }
 }

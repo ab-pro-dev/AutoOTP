@@ -1,6 +1,12 @@
 import { Command } from "commander";
 import { VERSION } from "@autootp/shared";
-import { loginAction, accountsAction, removeAction, CommandContext } from "./commands.js";
+import {
+  loginAction,
+  accountsAction,
+  removeAction,
+  watchAction,
+  CommandContext
+} from "./commands.js";
 
 export function createProgram(context: CommandContext = {}): Command {
   const program = new Command();
@@ -31,5 +37,13 @@ export function createProgram(context: CommandContext = {}): Command {
       await removeAction(alias, context);
     });
 
+  program
+    .command("watch")
+    .description("Watch connected Gmail accounts for incoming OTPs")
+    .action(async () => {
+      await watchAction(context);
+    });
+
   return program;
 }
+

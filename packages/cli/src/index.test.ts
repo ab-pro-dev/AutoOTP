@@ -6,9 +6,10 @@ import {
   validateAlias,
   formatAccountsTable,
   checkCredentialsPermissions,
-  revokeToken
+  revokeToken,
+  formatOtpNotification
 } from "./utils.js";
-import { removeAction, loginAction } from "./commands.js";
+import { removeAction, loginAction, watchAction } from "./commands.js";
 
 describe("CLI utilities and commands", () => {
   let tempDir: string;
@@ -148,4 +149,72 @@ describe("CLI utilities and commands", () => {
       );
     });
   });
+
+  describe("Watch Action & Formatting", () => {
+    it("formatOtpNotification formats single-line string with timestamp, sender, alias and code", () => {
+      // Mock timestamp: 2026-01-01 12:30:45 local time
+      const testDate = new Date(2026, 0, 1, 12, 30, 45);
+      const formatted = formatOtpNotification({
+        accountId: "work",
+        sender: "GitHub",
+        code: "948271",
+        receivedAt: testDate.getTime()
+      });
+      expect(formatted).toBe("[12:30:45] GitHub (work) -> 948271");
+    });
+
+    it("watchAction throws empty-state error when no accounts connected", async () => {
+      await expect(watchAction({ homeDir: tempDir })).rejects.toThrow(
+        "No accounts connected. Run: autootp login"
+      );
+    });
+
+    it("watchAction runs watchers for connected accounts and terminates on signal", async () => {
+      const store = new TokenStore(tempDir);
+      await store.set("personal", {
+        refreshToken: "ref-personal",
+        email: "personal@example.com",
+        addedAt: Date.now()
+      });
+
+      fs.writeFileSync(
+        path.join(tempDir, "credentials.json"),
+        JSON.stringify({
+          installed: { client_id: "mock-id", client_secret: "mock-sec" }
+        })
+      );
+
+      const controller = new AbortController();
+      let watched = false;
+
+      const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+        const urlStr = input.toString();
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          return new Response(
+            JSON.stringify({ access_token: "tok", expires_in: 3600 }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (urlStr.includes("/messages?q=")) {
+          watched = true;
+          controller.abort();
+          return new Response(JSON.stringify({ messages: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        return new Response("Not found", { status: 404 });
+      };
+
+      await watchAction({
+        homeDir: tempDir,
+        fetchImpl: mockFetch as typeof fetch,
+        signal: controller.signal,
+        pollMs: 10
+      });
+
+      expect(watched).toBe(true);
+    });
+  });
 });
+
