@@ -1,0 +1,11 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/shared" },
+    { "path": "packages/otp-parser" },
+    { "path": "packages/websocket" },
+    { "path": "packages/gmail" },
+    { "path": "packages/service" },
+    { "path": "packages/cli" }
+  ]
+}

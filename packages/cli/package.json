@@ -1,0 +1,10 @@
+{
+  "name": "autootp",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": "./dist/index.js",
+  "main": "./dist/index.js",
+  "dependencies": {
+    "@autootp/shared": "^0.1.0"
+  }
+}

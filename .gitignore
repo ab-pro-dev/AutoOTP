@@ -1,0 +1,12 @@
+node_modules
+dist
+*.tsbuildinfo
+.env
+.env.*
+*.enc
+*.db
+client_secret*.json
+credentials*.json
+.autootp/
+logs/
+coverage/
