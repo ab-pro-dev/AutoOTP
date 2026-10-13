@@ -1,4 +1,18 @@
 #!/usr/bin/env node
-import { VERSION } from "@autootp/shared";
+import { createProgram } from "./cli.js";
 
-console.log(VERSION);
+const program = createProgram();
+
+program.exitOverride();
+
+try {
+  await program.parseAsync(process.argv);
+} catch (err: unknown) {
+  const code = (err as { code?: string })?.code;
+  if (code === "commander.helpDisplayed" || code === "commander.version") {
+    process.exit(0);
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(message.split("\n")[0]);
+  process.exit(1);
+}

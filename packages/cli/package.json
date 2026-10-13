@@ -5,6 +5,8 @@
   "bin": "./dist/index.js",
   "main": "./dist/index.js",
   "dependencies": {
-    "@autootp/shared": "^0.1.0"
+    "@autootp/shared": "^0.1.0",
+    "@autootp/gmail": "^0.1.0",
+    "commander": "^14.0.3"
   }
 }
