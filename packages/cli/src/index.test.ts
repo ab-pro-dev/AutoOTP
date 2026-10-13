@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { getEventListeners } from "node:events";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { TokenStore } from "@autootp/shared";
 import {
@@ -215,6 +216,68 @@ describe("CLI utilities and commands", () => {
 
       expect(watched).toBe(true);
     });
+
+    it("abort listener limit: with N accounts watching, shared signal maintains at most N+2 listeners", async () => {
+      const store = new TokenStore(tempDir);
+      const N = 3;
+      for (let i = 1; i <= N; i++) {
+        await store.set(`acc-${i}`, {
+          refreshToken: `ref-${i}`,
+          email: `acc${i}@example.com`,
+          addedAt: Date.now() + i
+        });
+      }
+
+      fs.writeFileSync(
+        path.join(tempDir, "credentials.json"),
+        JSON.stringify({
+          installed: { client_id: "mock-id", client_secret: "mock-sec" }
+        })
+      );
+
+      const controller = new AbortController();
+      let pollCount = 0;
+      let maxListenersSeen = 0;
+
+      const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+        const urlStr = input.toString();
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          return new Response(
+            JSON.stringify({ access_token: "tok", expires_in: 3600 }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (urlStr.includes("/messages?q=")) {
+          pollCount++;
+          const currentListeners = getEventListeners(controller.signal, "abort").length;
+          if (currentListeners > maxListenersSeen) {
+            maxListenersSeen = currentListeners;
+          }
+          expect(currentListeners).toBeLessThanOrEqual(N + 2);
+
+          if (pollCount >= 15) {
+            controller.abort();
+          }
+          return new Response(JSON.stringify({ messages: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        return new Response("Not found", { status: 404 });
+      };
+
+      await watchAction({
+        homeDir: tempDir,
+        fetchImpl: mockFetch as typeof fetch,
+        signal: controller.signal,
+        pollMs: 1
+      });
+
+      expect(pollCount).toBeGreaterThanOrEqual(10);
+      expect(maxListenersSeen).toBeLessThanOrEqual(N + 2);
+      expect(getEventListeners(controller.signal, "abort").length).toBeLessThanOrEqual(N + 2);
+    });
   });
 });
+
 

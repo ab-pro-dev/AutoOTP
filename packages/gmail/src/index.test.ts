@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { getEventListeners } from "node:events";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { TokenStore } from "@autootp/shared";
 import {
@@ -685,5 +686,122 @@ describe("Gmail Watcher (packages/gmail)", () => {
 
     expect(onOtpCalled).toBe(false);
   });
+
+  it("abort listener leak regression: 50+ polls maintain at most 2 abort listeners on shared signal and abort stops loop", async () => {
+    const store = new TokenStore(tempDir);
+    await store.set("acc-listener-leak", {
+      refreshToken: "refresh-token-leak",
+      email: "leak@example.com",
+      addedAt: Date.now()
+    });
+
+    const controller = new AbortController();
+    const signal = controller.signal;
+    let pollCount = 0;
+    let maxListenersSeen = 0;
+
+    const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+      const urlStr = input.toString();
+      if (urlStr.includes("oauth2.googleapis.com/token")) {
+        return new Response(
+          JSON.stringify({ access_token: "mock-access-token", expires_in: 3600 }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (urlStr.includes("/messages?q=")) {
+        pollCount++;
+        const currentListeners = getEventListeners(signal, "abort").length;
+        if (currentListeners > maxListenersSeen) {
+          maxListenersSeen = currentListeners;
+        }
+        // Assert throughout the run that listeners stay <= 2
+        expect(currentListeners).toBeLessThanOrEqual(2);
+
+        if (pollCount >= 55) {
+          controller.abort();
+        }
+
+        return new Response(JSON.stringify({ messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      return new Response("Not found", { status: 404 });
+    };
+
+    await watchAccount({
+      accountId: "acc-listener-leak",
+      pollMs: 1,
+      signal,
+      fetchImpl: mockFetch as typeof fetch,
+      homeDir: tempDir,
+      onOtp: () => {}
+    });
+
+    expect(pollCount).toBeGreaterThanOrEqual(50);
+    expect(maxListenersSeen).toBeLessThanOrEqual(2);
+    // After the run, listeners must stay <= 2 (and should be 0)
+    expect(getEventListeners(signal, "abort").length).toBeLessThanOrEqual(2);
+    expect(signal.aborted).toBe(true);
+  });
+
+  it("abort listener limit with N concurrent watchers: shared signal maintains at most N+2 listeners", async () => {
+    const N = 4;
+    const store = new TokenStore(tempDir);
+    for (let i = 1; i <= N; i++) {
+      await store.set(`concurrent-${i}`, {
+        refreshToken: `token-${i}`,
+        email: `conc${i}@example.com`,
+        addedAt: Date.now() + i
+      });
+    }
+
+    const controller = new AbortController();
+    const signal = controller.signal;
+    let totalPolls = 0;
+    let maxListeners = 0;
+
+    const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+      const urlStr = input.toString();
+      if (urlStr.includes("oauth2.googleapis.com/token")) {
+        return new Response(
+          JSON.stringify({ access_token: "mock-token", expires_in: 3600 }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (urlStr.includes("/messages?q=")) {
+        totalPolls++;
+        const count = getEventListeners(signal, "abort").length;
+        if (count > maxListeners) maxListeners = count;
+        expect(count).toBeLessThanOrEqual(N + 2);
+
+        if (totalPolls >= 20) {
+          controller.abort();
+        }
+        return new Response(JSON.stringify({ messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      return new Response("Not found", { status: 404 });
+    };
+
+    await Promise.all(
+      Array.from({ length: N }, (_, i) =>
+        watchAccount({
+          accountId: `concurrent-${i + 1}`,
+          pollMs: 1,
+          signal,
+          fetchImpl: mockFetch as typeof fetch,
+          homeDir: tempDir,
+          onOtp: () => {}
+        })
+      )
+    );
+
+    expect(maxListeners).toBeLessThanOrEqual(N + 2);
+    expect(getEventListeners(signal, "abort").length).toBeLessThanOrEqual(2);
+  });
 });
+
 

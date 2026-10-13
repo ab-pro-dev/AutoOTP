@@ -100,9 +100,19 @@ export async function watchAction(context: CommandContext = {}): Promise<void> {
   }
 
   const abortController = new AbortController();
-  const signal = context.signal
-    ? AbortSignal.any([context.signal, abortController.signal])
-    : abortController.signal;
+  const onParentAbort = () => {
+    abortController.abort(context.signal?.reason);
+  };
+
+  if (context.signal) {
+    if (context.signal.aborted) {
+      abortController.abort(context.signal.reason);
+    } else {
+      context.signal.addEventListener("abort", onParentAbort, { once: true });
+    }
+  }
+
+  const signal = abortController.signal;
 
   let sigintReceived = false;
   const onSigint = () => {
@@ -139,6 +149,9 @@ export async function watchAction(context: CommandContext = {}): Promise<void> {
     await Promise.all(watcherPromises);
   } finally {
     process.removeListener("SIGINT", onSigint);
+    if (context.signal) {
+      context.signal.removeEventListener("abort", onParentAbort);
+    }
     if (sigintReceived) {
       process.exit(0);
     }

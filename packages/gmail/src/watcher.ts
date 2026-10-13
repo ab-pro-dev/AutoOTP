@@ -146,20 +146,76 @@ export function extractBodyFromPayload(payload?: GmailMessagePart): string {
   return "";
 }
 
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     if (signal?.aborted) return resolve();
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      "abort",
-      () => {
+    let timer: NodeJS.Timeout | undefined;
+
+    const cleanup = () => {
+      if (timer !== undefined) {
         clearTimeout(timer);
-        resolve();
-      },
-      { once: true }
-    );
+        timer = undefined;
+      }
+      signal?.removeEventListener("abort", onAbort);
+    };
+
+    const onAbort = () => {
+      cleanup();
+      resolve();
+    };
+
+    timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+
+    signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  fetchImpl: typeof fetch,
+  timeoutMs: number = 10000,
+  signal?: AbortSignal
+): Promise<Response> {
+  const controller = new AbortController();
+  let timer: NodeJS.Timeout | undefined;
+
+  const onAbort = () => {
+    controller.abort(signal?.reason);
+  };
+
+  if (signal) {
+    if (signal.aborted) {
+      controller.abort(signal.reason);
+    } else {
+      signal.addEventListener("abort", onAbort, { once: true });
+    }
+  }
+
+  timer = setTimeout(() => {
+    timer = undefined;
+    controller.abort(new DOMException("The operation was aborted due to timeout", "TimeoutError"));
+  }, timeoutMs);
+
+  try {
+    return await fetchImpl(url, {
+      ...init,
+      signal: controller.signal
+    });
+  } finally {
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timer = undefined;
+    }
+    if (signal) {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
+}
+
 
 /**
  * Polls Gmail for incoming OTP emails for a given account.
@@ -226,15 +282,16 @@ export async function watchAccount(options: WatchAccountOptions): Promise<void> 
         q
       )}&maxResults=10`;
 
-      const listSignal = signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(10000)])
-        : AbortSignal.timeout(10000);
-
-      const listRes = await fetchImpl(listUrl, {
-        method: "GET",
-        headers: { Authorization: `Bearer ${token}` },
-        signal: listSignal
-      });
+      const listRes = await fetchWithTimeout(
+        listUrl,
+        {
+          method: "GET",
+          headers: { Authorization: `Bearer ${token}` }
+        },
+        fetchImpl,
+        10000,
+        signal
+      );
 
       if (listRes.status === 401) {
         cachedToken = null;
@@ -271,17 +328,15 @@ export async function watchAccount(options: WatchAccountOptions): Promise<void> 
         if (signal?.aborted) break;
         if (!msg.id || seenSet.has(msg.id)) continue;
 
-        const getSignal = signal
-          ? AbortSignal.any([signal, AbortSignal.timeout(10000)])
-          : AbortSignal.timeout(10000);
-
-        const msgRes = await fetchImpl(
+        const msgRes = await fetchWithTimeout(
           `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`,
           {
             method: "GET",
-            headers: { Authorization: `Bearer ${token}` },
-            signal: getSignal
-          }
+            headers: { Authorization: `Bearer ${token}` }
+          },
+          fetchImpl,
+          10000,
+          signal
         );
 
         if (msgRes.status === 401) {
