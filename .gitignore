@@ -10,3 +10,4 @@ credentials*.json
 .autootp/
 logs/
 coverage/
+graphify-out/
