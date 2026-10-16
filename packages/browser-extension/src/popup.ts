@@ -50,7 +50,7 @@ async function render(): Promise<void> {
     }
 
     const otp = (session.latestOtp || session.otp) as
-      | { sender: string; code: string; receivedAt: number }
+      | { sender: string; senderDomain?: string | null; code: string; receivedAt: number }
       | undefined;
 
     if (otp && isOtpUnderTenMinutes(otp.receivedAt)) {

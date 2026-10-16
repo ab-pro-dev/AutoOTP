@@ -9,6 +9,7 @@ export interface OtpNotification {
   messageId?: string;
   accountId: string;
   sender: string;
+  senderDomain?: string | null;
   code: string;
   raw: string;
   confidence: "high" | "medium";
@@ -108,6 +109,38 @@ export function parseSender(fromHeader?: string): string {
   }
 
   return fromHeader.trim();
+}
+
+/**
+ * Extracts the sender's host/domain from a From header:
+ * - Extracts address from "Name <user@host>" or a bare "user@host"
+ * - Lowercases the host
+ * - Accepts only /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/ with at least one dot
+ * - Anything else returns null
+ */
+export function parseSenderDomain(fromHeader?: string): string | null {
+  if (!fromHeader || typeof fromHeader !== "string") {
+    return null;
+  }
+
+  const angleMatch = fromHeader.match(/<([^>]+)>/);
+  const addr = (angleMatch ? angleMatch[1] : fromHeader).trim();
+  const atIndex = addr.lastIndexOf("@");
+  if (atIndex === -1 || atIndex === 0 || atIndex === addr.length - 1) {
+    return null;
+  }
+
+  const host = addr.slice(atIndex + 1).trim().toLowerCase();
+  if (!host.includes(".")) {
+    return null;
+  }
+
+  const domainRegex = /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/;
+  if (!domainRegex.test(host)) {
+    return null;
+  }
+
+  return host;
 }
 
 /**
@@ -375,6 +408,7 @@ export async function watchAccount(options: WatchAccountOptions): Promise<void> 
         }
 
         const sender = parseSender(from);
+        const senderDomain = parseSenderDomain(from);
         const body = extractBodyFromPayload(msgData.payload);
         const receivedAt = msgData.internalDate ? Number(msgData.internalDate) : Date.now();
 
@@ -386,6 +420,7 @@ export async function watchAccount(options: WatchAccountOptions): Promise<void> 
               messageId: msg.id,
               accountId,
               sender,
+              senderDomain,
               code: otp.code,
               raw: otp.raw,
               confidence: otp.confidence,

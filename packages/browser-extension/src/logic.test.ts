@@ -8,6 +8,9 @@ import {
   isOtpUnderTenMinutes,
   formatOtpAge,
   formatOtpDisplay,
+  getRegistrableDomain,
+  domainsMatch,
+  MULTI_PART_PUBLIC_SUFFIXES,
   MIN_BACKOFF_MS,
   MAX_BACKOFF_MS,
   OTP_MAX_AGE_MS
@@ -56,19 +59,53 @@ describe("Incoming Message Validation", () => {
     expect(parseIncomingMessage(raw)).toEqual({ type: "ping" });
   });
 
-  it("validates valid otp messages", () => {
-    const otpPayload = {
+  it("validates valid otp messages with and without senderDomain", () => {
+    const otpPayloadWithDomain = {
       type: "otp",
       id: "msg-123",
       sender: "GitHub",
+      senderDomain: "github.com",
       code: "892147",
       account: "personal",
       receivedAt: 1700000000000,
       raw: "Your code is 892147"
     };
 
-    const msg = parseIncomingMessage(JSON.stringify(otpPayload));
-    expect(msg).toEqual(otpPayload);
+    const msgWithDomain = parseIncomingMessage(JSON.stringify(otpPayloadWithDomain));
+    expect(msgWithDomain).toEqual(otpPayloadWithDomain);
+
+    const otpPayloadWithoutDomain = {
+      type: "otp",
+      id: "msg-124",
+      sender: "Google",
+      code: "123456",
+      account: "work",
+      receivedAt: 1700000000000
+    };
+    expect(parseIncomingMessage(JSON.stringify(otpPayloadWithoutDomain))).toEqual({
+      ...otpPayloadWithoutDomain,
+      senderDomain: null,
+      raw: undefined
+    });
+
+    const otpPayloadInvalidDomain = {
+      type: "otp",
+      sender: "Service",
+      senderDomain: "not a domain!",
+      code: "654321",
+      account: "test",
+      receivedAt: 1700000000000
+    };
+    expect(parseIncomingMessage(otpPayloadInvalidDomain)).toEqual({
+      type: "otp",
+      id: undefined,
+      sender: "Service",
+      senderDomain: null,
+      code: "654321",
+      account: "test",
+      receivedAt: 1700000000000,
+      raw: undefined
+    });
   });
 
   it("rejects malformed inputs and non-objects", () => {
@@ -304,3 +341,107 @@ describe("OTP 10-Minute Age Check & Display Formatting", () => {
     expect(formatted).toBe("GitHub 948210 45s ago");
   });
 });
+
+describe("Domain Matching (domainsMatch & getRegistrableDomain)", () => {
+  it("extracts registrable domain for standard domains", () => {
+    expect(getRegistrableDomain("github.com")).toBe("github.com");
+    expect(getRegistrableDomain("mail.github.com")).toBe("github.com");
+    expect(getRegistrableDomain("sub.deep.mail.github.com")).toBe("github.com");
+    expect(getRegistrableDomain("google.com")).toBe("google.com");
+    expect(getRegistrableDomain("accounts.google.com")).toBe("google.com");
+  });
+
+  it("extracts registrable domain for multi-part public suffixes", () => {
+    // ccTLDs
+    expect(getRegistrableDomain("shop.co.uk")).toBe("shop.co.uk");
+    expect(getRegistrableDomain("sub.shop.co.uk")).toBe("shop.co.uk");
+    expect(getRegistrableDomain("example.org.uk")).toBe("example.org.uk");
+    expect(getRegistrableDomain("example.ac.uk")).toBe("example.ac.uk");
+    expect(getRegistrableDomain("example.gov.uk")).toBe("example.gov.uk");
+    expect(getRegistrableDomain("example.com.au")).toBe("example.com.au");
+    expect(getRegistrableDomain("example.net.au")).toBe("example.net.au");
+    expect(getRegistrableDomain("example.co.jp")).toBe("example.co.jp");
+    expect(getRegistrableDomain("example.co.in")).toBe("example.co.in");
+    expect(getRegistrableDomain("example.co.za")).toBe("example.co.za");
+    expect(getRegistrableDomain("example.com.br")).toBe("example.com.br");
+    expect(getRegistrableDomain("example.com.et")).toBe("example.com.et");
+    expect(getRegistrableDomain("example.gov.et")).toBe("example.gov.et");
+    expect(getRegistrableDomain("example.edu.et")).toBe("example.edu.et");
+
+    // Platforms
+    expect(getRegistrableDomain("user1.github.io")).toBe("user1.github.io");
+    expect(getRegistrableDomain("sub.user1.github.io")).toBe("user1.github.io");
+    expect(getRegistrableDomain("app.vercel.app")).toBe("app.vercel.app");
+    expect(getRegistrableDomain("site.netlify.app")).toBe("site.netlify.app");
+    expect(getRegistrableDomain("my-app.pages.dev")).toBe("my-app.pages.dev");
+    expect(getRegistrableDomain("test.herokuapp.com")).toBe("test.herokuapp.com");
+    expect(getRegistrableDomain("blog.blogspot.com")).toBe("blog.blogspot.com");
+    expect(getRegistrableDomain("project.web.app")).toBe("project.web.app");
+    expect(getRegistrableDomain("project.firebaseapp.com")).toBe("project.firebaseapp.com");
+  });
+
+  it("returns null for multi-part public suffix with insufficient labels", () => {
+    expect(getRegistrableDomain("co.uk")).toBeNull();
+    expect(getRegistrableDomain("github.io")).toBeNull();
+  });
+
+  it("returns null for localhost, IP addresses, empty or invalid hostnames", () => {
+    expect(getRegistrableDomain("localhost")).toBeNull();
+    expect(getRegistrableDomain("foo.localhost")).toBeNull();
+    expect(getRegistrableDomain("127.0.0.1")).toBeNull();
+    expect(getRegistrableDomain("192.168.1.1")).toBeNull();
+    expect(getRegistrableDomain("10.0.0.1")).toBeNull();
+    expect(getRegistrableDomain("::1")).toBeNull();
+    expect(getRegistrableDomain("")).toBeNull();
+    expect(getRegistrableDomain("   ")).toBeNull();
+    expect(getRegistrableDomain(null)).toBeNull();
+    expect(getRegistrableDomain(undefined)).toBeNull();
+    expect(getRegistrableDomain("com")).toBeNull();
+  });
+
+  it("domainsMatch tests specified in requirements", () => {
+    // github.com vs github.com -> true
+    expect(domainsMatch("github.com", "github.com")).toBe(true);
+    // mail.github.com vs github.com -> true
+    expect(domainsMatch("mail.github.com", "github.com")).toBe(true);
+    // accounts.google.com vs accounts.google.com -> true
+    expect(domainsMatch("accounts.google.com", "accounts.google.com")).toBe(true);
+    // github.com vs github.com.evil.com -> false
+    expect(domainsMatch("github.com", "github.com.evil.com")).toBe(false);
+    // github.com vs evil-github.com -> false
+    expect(domainsMatch("github.com", "evil-github.com")).toBe(false);
+    // user1.github.io vs user2.github.io -> false
+    expect(domainsMatch("user1.github.io", "user2.github.io")).toBe(false);
+    // shop.co.uk vs evil.co.uk -> false
+    expect(domainsMatch("shop.co.uk", "evil.co.uk")).toBe(false);
+    // 127.0.0.1 and localhost -> false
+    expect(domainsMatch("127.0.0.1", "127.0.0.1")).toBe(false);
+    expect(domainsMatch("localhost", "localhost")).toBe(false);
+    expect(domainsMatch("127.0.0.1", "localhost")).toBe(false);
+    expect(domainsMatch("github.com", "127.0.0.1")).toBe(false);
+    expect(domainsMatch("127.0.0.1", "github.com")).toBe(false);
+  });
+
+  it("domainsMatch handles null, undefined, empty and invalid domains correctly", () => {
+    expect(domainsMatch(null, "github.com")).toBe(false);
+    expect(domainsMatch("github.com", null)).toBe(false);
+    expect(domainsMatch(null, null)).toBe(false);
+    expect(domainsMatch(undefined, "github.com")).toBe(false);
+    expect(domainsMatch("github.com", undefined)).toBe(false);
+    expect(domainsMatch("", "github.com")).toBe(false);
+    expect(domainsMatch("github.com", "")).toBe(false);
+    expect(domainsMatch("invalid_host", "github.com")).toBe(false);
+  });
+
+  it("verifies all required public suffixes are present in MULTI_PART_PUBLIC_SUFFIXES", () => {
+    const requiredSuffixes = [
+      "co.uk", "org.uk", "ac.uk", "gov.uk", "com.au", "net.au", "co.jp", "co.in",
+      "co.za", "com.br", "com.et", "gov.et", "edu.et", "github.io", "vercel.app",
+      "netlify.app", "pages.dev", "herokuapp.com", "blogspot.com", "web.app", "firebaseapp.com"
+    ];
+    for (const suffix of requiredSuffixes) {
+      expect(MULTI_PART_PUBLIC_SUFFIXES.has(suffix)).toBe(true);
+    }
+  });
+});
+

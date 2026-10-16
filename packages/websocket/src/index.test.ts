@@ -96,6 +96,29 @@ describe("Local OTP WebSocket Server (packages/websocket)", () => {
         account: "personal",
         receivedAt: 1700000000000
       });
+
+      // Broadcast with senderDomain present
+      const otpWithDomainPromise = waitForMessage(client);
+      server.broadcastOtp({
+        id: "msg-2",
+        sender: "GitHub",
+        senderDomain: "github.com",
+        code: "123456",
+        raw: "Your code is 123456",
+        account: "personal",
+        receivedAt: 1700000000000
+      });
+      const otpWithDomain = await otpWithDomainPromise;
+      expect(otpWithDomain).toEqual({
+        type: "otp",
+        id: "msg-2",
+        sender: "GitHub",
+        senderDomain: "github.com",
+        code: "123456",
+        raw: "Your code is 123456",
+        account: "personal",
+        receivedAt: 1700000000000
+      });
     } finally {
       client.close();
       await server.close();

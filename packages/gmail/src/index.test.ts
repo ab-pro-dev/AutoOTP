@@ -14,6 +14,7 @@ import {
   watchAccount,
   htmlToText,
   parseSender,
+  parseSenderDomain,
   OtpNotification
 } from "./index.js";
 
@@ -349,6 +350,30 @@ describe("Gmail Watcher (packages/gmail)", () => {
     expect(parseSender("<support@stripe.com>")).toBe("stripe.com");
     expect(parseSender("auth@service.com")).toBe("service.com");
     expect(parseSender("")).toBe("unknown");
+  });
+
+  it("parseSenderDomain extracts valid domains, lowercases, and handles edge cases", () => {
+    // Valid
+    expect(parseSenderDomain("GitHub <noreply@github.com>")).toBe("github.com");
+    // Uppercase
+    expect(parseSenderDomain('"Bob" <Bob@Mail.Example.COM>')).toBe("mail.example.com");
+    // Quoted name
+    expect(parseSenderDomain('"Acme Support" <support@acme.org>')).toBe("acme.org");
+    // Bare address
+    expect(parseSenderDomain("user@service.io")).toBe("service.io");
+    expect(parseSenderDomain("test@sub.domain.co.uk")).toBe("sub.domain.co.uk");
+    // Garbage and invalid formats
+    expect(parseSenderDomain("not an email")).toBeNull();
+    expect(parseSenderDomain("just text without at")).toBeNull();
+    expect(parseSenderDomain("")).toBeNull();
+    expect(parseSenderDomain(undefined)).toBeNull();
+    expect(parseSenderDomain("user@localhost")).toBeNull(); // no dot
+    expect(parseSenderDomain("<>")).toBeNull();
+    expect(parseSenderDomain("@")).toBeNull();
+    expect(parseSenderDomain("user@")).toBeNull();
+    expect(parseSenderDomain("@domain.com")).toBeNull();
+    expect(parseSenderDomain("user@.com")).toBeNull();
+    expect(parseSenderDomain("user@com.")).toBeNull();
   });
 
   it("dedupe: duplicate message returned across polls produces only one onOtp call", async () => {

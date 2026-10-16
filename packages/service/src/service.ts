@@ -123,6 +123,7 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
             server.broadcastOtp({
               id: otp.messageId ?? otp.id ?? crypto.randomUUID(),
               sender: otp.sender,
+              senderDomain: otp.senderDomain,
               code: otp.code,
               raw: otp.raw,
               account: alias,

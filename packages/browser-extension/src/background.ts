@@ -102,10 +102,10 @@ async function connect(): Promise<void> {
       }
 
       if (msg.type === "otp") {
-        const { sender, code, account, receivedAt } = msg;
+        const { sender, senderDomain, code, account, receivedAt } = msg;
         await chrome.storage.session.set({
-          latestOtp: { sender, code, account, receivedAt },
-          otp: { sender, code, account, receivedAt }
+          latestOtp: { sender, senderDomain, code, account, receivedAt },
+          otp: { sender, senderDomain, code, account, receivedAt }
         });
       }
     };

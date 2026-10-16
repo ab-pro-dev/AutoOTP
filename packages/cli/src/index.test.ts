@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getEventListeners } from "node:events";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { TokenStore, loadConfig } from "@autootp/shared";
+import { TokenStore, loadConfig, saveConfig } from "@autootp/shared";
 import {
   validateAlias,
   validateExtensionId,
@@ -337,6 +337,13 @@ describe("CLI utilities and commands", () => {
     it("createProgram runs service --no-watch and terminates cleanly on signal", async () => {
       const extId = "abcdefghijklmnopabcdefghijklmnop";
       await pairAction(extId, { homeDir: tempDir });
+      saveConfig(
+        {
+          allowedOrigins: [`chrome-extension://${extId}`],
+          port: 49123
+        },
+        tempDir
+      );
 
       const controller = new AbortController();
       const program = createProgram({

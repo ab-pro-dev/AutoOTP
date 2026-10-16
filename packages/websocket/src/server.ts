@@ -15,6 +15,7 @@ export interface CreateOtpServerOptions {
 export interface OtpBroadcastPayload {
   id?: string;
   sender: string;
+  senderDomain?: string | null;
   code: string;
   raw: string;
   account: string;
@@ -216,7 +217,7 @@ export async function createOtpServer(
   });
 
   const broadcastOtp = (otp: OtpBroadcastPayload): void => {
-    const payload = JSON.stringify({
+    const msg: Record<string, unknown> = {
       type: "otp",
       id: otp.id ?? crypto.randomUUID(),
       sender: otp.sender,
@@ -224,7 +225,11 @@ export async function createOtpServer(
       raw: otp.raw,
       account: otp.account,
       receivedAt: otp.receivedAt ?? Date.now()
-    });
+    };
+    if (otp.senderDomain !== undefined) {
+      msg.senderDomain = otp.senderDomain;
+    }
+    const payload = JSON.stringify(msg);
 
     for (const client of authenticatedSockets) {
       if (client.readyState === WebSocket.OPEN) {

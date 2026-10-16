@@ -40,6 +40,7 @@ export interface OtpMessage {
   type: "otp";
   id?: string;
   sender: string;
+  senderDomain: string | null;
   code: string;
   account: string;
   receivedAt: number;
@@ -106,10 +107,23 @@ export function parseIncomingMessage(data: unknown): ValidatedMessage | null {
       return null;
     }
 
+    let senderDomain: string | null = null;
+    if (typeof obj.senderDomain === "string") {
+      const trimmed = obj.senderDomain.trim().toLowerCase();
+      if (
+        trimmed.length > 0 &&
+        trimmed.includes(".") &&
+        /^[a-z0-9]([a-z0-9.-]{0,251}[a-z0-9])?$/.test(trimmed)
+      ) {
+        senderDomain = trimmed;
+      }
+    }
+
     return {
       type: "otp",
       id: typeof obj.id === "string" ? obj.id : undefined,
       sender,
+      senderDomain,
       code,
       account,
       receivedAt,
@@ -210,3 +224,107 @@ export function formatOtpDisplay(
   const age = formatOtpAge(otp.receivedAt, now);
   return `${otp.sender} ${otp.code} ${age}`;
 }
+
+/**
+ * Built-in approximation of the Public Suffix List (PSL).
+ * Contains common two-part ccTLDs and hosting platforms where subdomains
+ * represent distinct and unrelated sites.
+ */
+export const MULTI_PART_PUBLIC_SUFFIXES = new Set([
+  "co.uk",
+  "org.uk",
+  "ac.uk",
+  "gov.uk",
+  "com.au",
+  "net.au",
+  "co.jp",
+  "co.in",
+  "co.za",
+  "com.br",
+  "com.et",
+  "gov.et",
+  "edu.et",
+  "github.io",
+  "vercel.app",
+  "netlify.app",
+  "pages.dev",
+  "herokuapp.com",
+  "blogspot.com",
+  "web.app",
+  "firebaseapp.com"
+]);
+
+function isIpAddressOrLocalhost(host: string): boolean {
+  if (host === "localhost" || host.endsWith(".localhost")) {
+    return true;
+  }
+  // IPv4: 4 numeric octets separated by dots
+  const ipv4Regex = /^(?:\d{1,3}\.){3}\d{1,3}$/;
+  if (ipv4Regex.test(host)) {
+    return true;
+  }
+  // IPv6: contains colon (e.g. ::1, fe80::1)
+  if (host.includes(":")) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Extracts the registrable domain from a hostname:
+ * The last 2 labels, or the last 3 labels if the last 2 form a known multi-part public suffix.
+ * Returns null for IP addresses, localhost, empty input, or single-label hostnames.
+ */
+export function getRegistrableDomain(hostname: string | null | undefined): string | null {
+  if (!hostname || typeof hostname !== "string") {
+    return null;
+  }
+
+  const clean = hostname.trim().toLowerCase();
+  if (!clean || isIpAddressOrLocalhost(clean)) {
+    return null;
+  }
+
+  const labels = clean.split(".");
+  if (labels.length < 2 || labels.some((l) => l.length === 0)) {
+    return null;
+  }
+
+  const lastTwo = labels.slice(-2).join(".");
+  if (MULTI_PART_PUBLIC_SUFFIXES.has(lastTwo)) {
+    if (labels.length < 3) {
+      return null;
+    }
+    return labels.slice(-3).join(".");
+  }
+
+  return labels.slice(-2).join(".");
+}
+
+/**
+ * Compares two hostnames/domains by their registrable domains.
+ * Returns true only if both registrable domains are valid and exactly equal.
+ */
+export function domainsMatch(
+  senderDomain: string | null | undefined,
+  pageHostname: string | null | undefined
+): boolean {
+  if (
+    !senderDomain ||
+    !pageHostname ||
+    typeof senderDomain !== "string" ||
+    typeof pageHostname !== "string"
+  ) {
+    return false;
+  }
+
+  const regSender = getRegistrableDomain(senderDomain);
+  const regPage = getRegistrableDomain(pageHostname);
+
+  if (!regSender || !regPage) {
+    return false;
+  }
+
+  return regSender === regPage;
+}
+
