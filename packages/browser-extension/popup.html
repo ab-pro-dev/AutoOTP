@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AutoOTP</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 14px;
+      width: 290px;
+      background: #ffffff;
+      color: #1f2937;
+      box-sizing: border-box;
+    }
+    h1 {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 0 0 10px 0;
+      color: #111827;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .status-row {
+      font-size: 13px;
+      margin-bottom: 12px;
+      padding: 6px 8px;
+      background: #f3f4f6;
+      border-radius: 6px;
+    }
+    .status-label {
+      font-weight: 500;
+      color: #4b5563;
+    }
+    .status-val {
+      font-weight: 600;
+      margin-left: 4px;
+    }
+    .status-connected { color: #059669; }
+    .status-connecting { color: #d97706; }
+    .status-error { color: #dc2626; }
+    .status-neutral { color: #6b7280; }
+
+    #otp-container {
+      margin-bottom: 12px;
+      padding: 10px;
+      background: #ecfdf5;
+      border: 1px solid #a7f3d0;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    #otp-text {
+      font-size: 13px;
+      font-weight: 600;
+      color: #065f46;
+      word-break: break-all;
+    }
+    .token-form {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    input[type="password"] {
+      padding: 8px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      font-size: 13px;
+      outline: none;
+      box-sizing: border-box;
+      width: 100%;
+    }
+    input[type="password"]:focus {
+      border-color: #3b82f6;
+    }
+    .button-row {
+      display: flex;
+      gap: 8px;
+    }
+    button {
+      flex: 1;
+      padding: 7px 10px;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    #save-btn {
+      background: #2563eb;
+      color: #ffffff;
+    }
+    #save-btn:hover {
+      background: #1d4ed8;
+    }
+    #forget-btn {
+      background: #f3f4f6;
+      color: #374151;
+      border: 1px solid #d1d5db;
+    }
+    #forget-btn:hover {
+      background: #e5e7eb;
+    }
+    #copy-btn {
+      flex: none;
+      background: #059669;
+      color: #ffffff;
+      padding: 5px 10px;
+      font-size: 12px;
+    }
+    #copy-btn:hover {
+      background: #047857;
+    }
+  </style>
+</head>
+<body>
+  <h1>AutoOTP</h1>
+  <div class="status-row">
+    <span class="status-label">Status:</span>
+    <span id="status-text" class="status-val status-neutral">Not paired</span>
+  </div>
+
+  <div id="otp-container" style="display: none;">
+    <div id="otp-text"></div>
+    <button id="copy-btn" type="button">Copy</button>
+  </div>
+
+  <div class="token-form">
+    <input type="password" id="token-input" placeholder="Paste pair token..." autocomplete="off" />
+    <div class="button-row">
+      <button id="save-btn" type="button">Save</button>
+      <button id="forget-btn" type="button">Forget</button>
+    </div>
+  </div>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

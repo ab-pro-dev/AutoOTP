@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "AutoOTP",
+  "version": "0.1.0",
+  "description": "Automated OTP handling for Chrome",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAySmH8uLT2k3uvwSU/t2qIN1RrISs2nzBOOXevNDFJ8pl39853yqFQZ+TkNRwgnqQ31U94xMbUIJCZfxcnRn315zCMEq3XH8orUjMpVfk74blM/vvZ90wsQQk+0/hdhzur/zY1L8IIAjCLxsPGjxULHTD7SyrQZ8FYQrMmeFSwPTBIx8jdNTp1v4GFiJCFNOprQhEQotadmNN8PpBuPkNJSuo/r812LaU+AbCkKFsua6o1M8PNHebPOMdF2JYhrEPE2mv4+x1SUt7lhadbaGKTkNZlj6Xfok51a3j1xySrqz/I5WDSeQXV3bRu/HcDxubshe9dmW+QkgHU7ivdq1LTwIDAQAB",
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "storage",
+    "alarms"
+  ]
+}

@@ -6,6 +6,7 @@
     { "path": "packages/websocket" },
     { "path": "packages/gmail" },
     { "path": "packages/service" },
-    { "path": "packages/cli" }
+    { "path": "packages/cli" },
+    { "path": "packages/browser-extension" }
   ]
 }

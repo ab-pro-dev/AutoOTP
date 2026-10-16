@@ -10,6 +10,7 @@
   },
   "scripts": {
     "build": "tsc -b",
+    "build:ext": "npm run build:ext -w @autootp/browser-extension",
     "test": "vitest run",
     "typecheck": "tsc -b"
   },
