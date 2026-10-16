@@ -2,15 +2,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { getEventListeners } from "node:events";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { TokenStore } from "@autootp/shared";
+import { TokenStore, loadConfig } from "@autootp/shared";
 import {
   validateAlias,
+  validateExtensionId,
   formatAccountsTable,
   checkCredentialsPermissions,
   revokeToken,
   formatOtpNotification
 } from "./utils.js";
-import { removeAction, loginAction, watchAction } from "./commands.js";
+import { removeAction, loginAction, watchAction, pairAction } from "./commands.js";
+import { createProgram } from "./cli.js";
 
 describe("CLI utilities and commands", () => {
   let tempDir: string;
@@ -278,6 +280,85 @@ describe("CLI utilities and commands", () => {
       expect(getEventListeners(controller.signal, "abort").length).toBeLessThanOrEqual(N + 2);
     });
   });
+
+  describe("Pair Action & Extension Validation", () => {
+    it("validates extension ID (32 chars in [a-p])", () => {
+      const valid = "abcdefghijklmnopabcdefghijklmnop";
+      expect(() => validateExtensionId(valid)).not.toThrow();
+
+      expect(() => validateExtensionId("a".repeat(32))).not.toThrow();
+      expect(() => validateExtensionId("p".repeat(32))).not.toThrow();
+
+      // Bad cases
+      expect(() => validateExtensionId("a".repeat(31))).toThrow(/Invalid extension ID/);
+      expect(() => validateExtensionId("a".repeat(33))).toThrow(/Invalid extension ID/);
+      expect(() => validateExtensionId("q".repeat(32))).toThrow(/Invalid extension ID/);
+      expect(() => validateExtensionId("A".repeat(32))).toThrow(/Invalid extension ID/);
+      expect(() => validateExtensionId("1".repeat(32))).toThrow(/Invalid extension ID/);
+    });
+
+    it("pair adds origins without duplicates and prints token", async () => {
+      const extId1 = "abcdefghijklmnopabcdefghijklmnop";
+      const extId2 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+      const token1 = await pairAction(extId1, { homeDir: tempDir });
+      expect(token1).toBeTruthy();
+      expect(Buffer.from(token1, "base64url").length).toBe(32);
+
+      let config = loadConfig(tempDir);
+      expect(config.allowedOrigins).toEqual([`chrome-extension://${extId1}`]);
+
+      // Call pair again with the same extension ID
+      const token2 = await pairAction(extId1, { homeDir: tempDir });
+      expect(token2).toBe(token1);
+
+      config = loadConfig(tempDir);
+      // No duplicate!
+      expect(config.allowedOrigins).toEqual([`chrome-extension://${extId1}`]);
+
+      // Call pair with a different extension ID
+      await pairAction(extId2, { homeDir: tempDir });
+      config = loadConfig(tempDir);
+      expect(config.allowedOrigins).toEqual([
+        `chrome-extension://${extId1}`,
+        `chrome-extension://${extId2}`
+      ]);
+    });
+
+    it("createProgram runs pair command successfully", async () => {
+      const extId = "abcdefghijklmnopabcdefghijklmnop";
+      const program = createProgram({ homeDir: tempDir });
+      await program.parseAsync(["node", "autootp", "pair", extId]);
+
+      const config = loadConfig(tempDir);
+      expect(config.allowedOrigins).toContain(`chrome-extension://${extId}`);
+    });
+
+    it("createProgram runs service --no-watch and terminates cleanly on signal", async () => {
+      const extId = "abcdefghijklmnopabcdefghijklmnop";
+      await pairAction(extId, { homeDir: tempDir });
+
+      const controller = new AbortController();
+      const program = createProgram({
+        homeDir: tempDir,
+        signal: controller.signal
+      });
+
+      const runPromise = program.parseAsync([
+        "node",
+        "autootp",
+        "service",
+        "--no-watch"
+      ]);
+
+      // Allow service to initialize and then abort
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      controller.abort();
+
+      await expect(runPromise).resolves.toBeDefined();
+    });
+  });
 });
+
 
 

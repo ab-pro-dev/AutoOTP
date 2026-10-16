@@ -16,6 +16,19 @@ export function validateAlias(alias: string): void {
 }
 
 /**
+ * Validates a Chrome extension ID.
+ * Must consist of exactly 32 characters in the range [a-p].
+ */
+export function validateExtensionId(extensionId: string): void {
+  if (!extensionId || typeof extensionId !== "string" || !/^[a-p]{32}$/.test(extensionId)) {
+    throw new Error(
+      `Invalid extension ID "${extensionId}". Extension ID must be 32 characters long and contain only lowercase letters a-p.`
+    );
+  }
+}
+
+
+/**
  * Checks if credentials.json is group- or world-readable on non-Windows platforms.
  * Prints a warning to stderr if permissions are overly permissive.
  */

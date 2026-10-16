@@ -5,6 +5,8 @@ import {
   accountsAction,
   removeAction,
   watchAction,
+  pairAction,
+  serviceAction,
   CommandContext
 } from "./commands.js";
 
@@ -42,6 +44,22 @@ export function createProgram(context: CommandContext = {}): Command {
     .description("Watch connected Gmail accounts for incoming OTPs")
     .action(async () => {
       await watchAction(context);
+    });
+
+  program
+    .command("pair <extensionId>")
+    .description("Pair a Chrome extension with AutoOTP")
+    .action(async (extensionId: string) => {
+      await pairAction(extensionId, context);
+    });
+
+  program
+    .command("service")
+    .description("Start the AutoOTP background service and WebSocket server")
+    .option("--no-watch", "Start only the WebSocket server without Gmail watching")
+    .action(async (opts: { watch?: boolean; noWatch?: boolean }) => {
+      const noWatch = opts.watch === false || opts.noWatch === true;
+      await serviceAction({ ...context, noWatch });
     });
 
   return program;

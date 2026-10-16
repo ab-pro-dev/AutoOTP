@@ -9,7 +9,11 @@ import {
   ensureHomeDir,
   StoredTokens,
   getOrCreatePairToken,
-  rotatePairToken
+  rotatePairToken,
+  loadConfig,
+  saveConfig,
+  validateConfig,
+  DEFAULT_CONFIG
 } from "./index.js";
 
 describe("VERSION", () => {
@@ -216,4 +220,98 @@ describe("Pairing Token (pair.token)", () => {
     expect((stat2.mode & 0o777).toString(8)).toBe("600");
   });
 });
+
+describe("Configuration (config.json)", () => {
+  let tempDir: string;
+  const originalHome = process.env.AUTOOTP_HOME;
+
+  beforeEach(() => {
+    const tmpBase = process.env.TMPDIR || process.env.TEMP || "/tmp";
+    tempDir = fs.mkdtempSync(path.join(tmpBase, "autootp-config-test-"));
+    process.env.AUTOOTP_HOME = tempDir;
+  });
+
+  afterEach(() => {
+    if (originalHome !== undefined) {
+      process.env.AUTOOTP_HOME = originalHome;
+    } else {
+      delete process.env.AUTOOTP_HOME;
+    }
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("loads default configuration when config.json does not exist", () => {
+    const cfg = loadConfig(tempDir);
+    expect(cfg).toEqual({
+      allowedOrigins: [],
+      port: 47821,
+      pollMs: 3000
+    });
+  });
+
+  it("validates valid configurations (good cases)", () => {
+    const goodCases = [
+      { allowedOrigins: [], port: 1024, pollMs: 1 },
+      { allowedOrigins: [], port: 65535, pollMs: 10000 },
+      { allowedOrigins: ["chrome-extension://abcdefghijklmnopabcdefghijklmnop"], port: 47821, pollMs: 3000 },
+      {
+        allowedOrigins: [
+          `chrome-extension://${"a".repeat(32)}`,
+          `chrome-extension://${"p".repeat(32)}`
+        ],
+        port: 8080,
+        pollMs: 500
+      }
+    ];
+
+    for (const c of goodCases) {
+      expect(() => validateConfig(c)).not.toThrow();
+    }
+  });
+
+  it("rejects invalid configurations (bad cases)", () => {
+    const badCases = [
+      { port: 1023, pollMs: 3000, allowedOrigins: [] }, // port < 1024
+      { port: 65536, pollMs: 3000, allowedOrigins: [] }, // port > 65535
+      { port: 47821.5, pollMs: 3000, allowedOrigins: [] }, // non-integer port
+      { port: "47821", pollMs: 3000, allowedOrigins: [] }, // port not a number
+      { port: 47821, pollMs: 0, allowedOrigins: [] }, // pollMs <= 0
+      { port: 47821, pollMs: -100, allowedOrigins: [] }, // negative pollMs
+      { port: 47821, pollMs: 3000, allowedOrigins: "not-an-array" }, // allowedOrigins not array
+      { port: 47821, pollMs: 3000, allowedOrigins: ["http://localhost:3000"] }, // invalid scheme
+      { port: 47821, pollMs: 3000, allowedOrigins: [`chrome-extension://${"q".repeat(32)}`] }, // invalid char 'q'
+      { port: 47821, pollMs: 3000, allowedOrigins: [`chrome-extension://${"A".repeat(32)}`] }, // uppercase
+      { port: 47821, pollMs: 3000, allowedOrigins: [`chrome-extension://${"a".repeat(31)}`] }, // length 31
+      { port: 47821, pollMs: 3000, allowedOrigins: [`chrome-extension://${"a".repeat(33)}`] }, // length 33
+      null,
+      undefined,
+      [],
+      "config"
+    ];
+
+    for (const c of badCases) {
+      expect(() => validateConfig(c)).toThrow(/Invalid configuration/);
+    }
+  });
+
+  it("saves and loads configuration with mode 600 on non-Windows", () => {
+    const customConfig = {
+      allowedOrigins: [`chrome-extension://${"b".repeat(32)}`],
+      port: 12345,
+      pollMs: 1500
+    };
+
+    saveConfig(customConfig, tempDir);
+    const loaded = loadConfig(tempDir);
+    expect(loaded).toEqual(customConfig);
+
+    if (process.platform !== "win32") {
+      const stat = fs.statSync(path.join(tempDir, "config.json"));
+      expect((stat.mode & 0o777).toString(8)).toBe("600");
+    }
+  });
+});
+
 

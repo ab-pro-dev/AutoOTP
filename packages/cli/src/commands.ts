@@ -1,7 +1,15 @@
-import { TokenStore, getHomeDir } from "@autootp/shared";
+import {
+  TokenStore,
+  getHomeDir,
+  loadConfig,
+  saveConfig,
+  getOrCreatePairToken
+} from "@autootp/shared";
 import { loginWithBrowser, watchAccount, ReauthRequiredError } from "@autootp/gmail";
+import { startService } from "@autootp/service";
 import {
   validateAlias,
+  validateExtensionId,
   checkCredentialsPermissions,
   openBrowser,
   formatAccountsTable,
@@ -157,4 +165,40 @@ export async function watchAction(context: CommandContext = {}): Promise<void> {
     }
   }
 }
+
+export async function pairAction(
+  extensionId: string,
+  context: CommandContext = {}
+): Promise<string> {
+  validateExtensionId(extensionId);
+  const homeDir = context.homeDir ?? getHomeDir();
+
+  const config = loadConfig(homeDir);
+  const origin = `chrome-extension://${extensionId}`;
+  if (!config.allowedOrigins.includes(origin)) {
+    config.allowedOrigins.push(origin);
+    saveConfig(config, homeDir);
+  }
+
+  const token = getOrCreatePairToken(homeDir);
+  console.log(token);
+  console.log("Paste this token into the AutoOTP extension. Never share it.");
+  return token;
+}
+
+export interface ServiceCommandOptions extends CommandContext {
+  noWatch?: boolean;
+}
+
+export async function serviceAction(
+  options: ServiceCommandOptions = {}
+): Promise<void> {
+  await startService({
+    noWatch: options.noWatch,
+    homeDir: options.homeDir,
+    fetchImpl: options.fetchImpl,
+    signal: options.signal
+  });
+}
+
 

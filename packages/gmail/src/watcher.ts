@@ -5,6 +5,8 @@ import { refreshAccessToken } from "./login.js";
 import { ReauthRequiredError } from "./errors.js";
 
 export interface OtpNotification {
+  id?: string;
+  messageId?: string;
   accountId: string;
   sender: string;
   code: string;
@@ -380,6 +382,8 @@ export async function watchAccount(options: WatchAccountOptions): Promise<void> 
         if (otp) {
           try {
             await onOtp({
+              id: msg.id,
+              messageId: msg.id,
               accountId,
               sender,
               code: otp.code,

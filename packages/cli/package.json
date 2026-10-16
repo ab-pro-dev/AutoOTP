@@ -7,6 +7,7 @@
   "dependencies": {
     "@autootp/shared": "^0.1.0",
     "@autootp/gmail": "^0.1.0",
+    "@autootp/service": "^0.1.0",
     "commander": "^14.0.3"
   }
 }
