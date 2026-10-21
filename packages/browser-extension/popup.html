@@ -50,6 +50,11 @@
       border: 1px solid #a7f3d0;
       border-radius: 6px;
       display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .otp-header-row {
+      display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 8px;
@@ -59,6 +64,41 @@
       font-weight: 600;
       color: #065f46;
       word-break: break-all;
+    }
+    #sender-site-info {
+      font-size: 11px;
+      color: #047857;
+      word-break: break-all;
+    }
+    .otp-actions {
+      display: flex;
+      gap: 6px;
+    }
+    #mismatch-warning {
+      font-size: 11px;
+      color: #dc2626;
+      font-weight: 500;
+      display: none;
+    }
+    #no-field-notice {
+      font-size: 11px;
+      color: #6b7280;
+      font-style: italic;
+      display: none;
+    }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #374151;
+      margin-bottom: 12px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .checkbox-row input {
+      margin: 0;
+      cursor: pointer;
     }
     .token-form {
       display: flex;
@@ -89,13 +129,17 @@
       font-size: 12px;
       font-weight: 500;
       cursor: pointer;
-      transition: background 0.15s ease;
+      transition: background 0.15s ease, opacity 0.15s ease;
+    }
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
     }
     #save-btn {
       background: #2563eb;
       color: #ffffff;
     }
-    #save-btn:hover {
+    #save-btn:hover:not(:disabled) {
       background: #1d4ed8;
     }
     #forget-btn {
@@ -103,7 +147,7 @@
       color: #374151;
       border: 1px solid #d1d5db;
     }
-    #forget-btn:hover {
+    #forget-btn:hover:not(:disabled) {
       background: #e5e7eb;
     }
     #copy-btn {
@@ -113,8 +157,18 @@
       padding: 5px 10px;
       font-size: 12px;
     }
-    #copy-btn:hover {
+    #copy-btn:hover:not(:disabled) {
       background: #047857;
+    }
+    #fill-btn {
+      flex: 1;
+      background: #2563eb;
+      color: #ffffff;
+      padding: 5px 10px;
+      font-size: 12px;
+    }
+    #fill-btn:hover:not(:disabled) {
+      background: #1d4ed8;
     }
   </style>
 </head>
@@ -126,9 +180,22 @@
   </div>
 
   <div id="otp-container" style="display: none;">
-    <div id="otp-text"></div>
-    <button id="copy-btn" type="button">Copy</button>
+    <div class="otp-header-row">
+      <div id="otp-text"></div>
+      <button id="copy-btn" type="button">Copy</button>
+    </div>
+    <div id="sender-site-info"></div>
+    <div class="otp-actions">
+      <button id="fill-btn" type="button" disabled>Fill</button>
+    </div>
+    <div id="mismatch-warning">Sender does not match this site.</div>
+    <div id="no-field-notice">No code field found on this page</div>
   </div>
+
+  <label class="checkbox-row">
+    <input type="checkbox" id="ask-first-checkbox" />
+    <span>Ask before filling (never auto-fill)</span>
+  </label>
 
   <div class="token-form">
     <input type="password" id="token-input" placeholder="Paste pair token..." autocomplete="off" />

@@ -5,9 +5,10 @@
   "private": true,
   "scripts": {
     "build": "tsc",
-    "build:ext": "tsc && node scripts/copy-static.mjs"
+    "build:ext": "tsc && node scripts/bundle-content.mjs && node scripts/copy-static.mjs"
   },
   "devDependencies": {
-    "@types/chrome": "^0.3.5"
+    "@types/chrome": "^0.3.5",
+    "esbuild": "0.28.2"
   }
 }

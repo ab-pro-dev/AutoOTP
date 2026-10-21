@@ -2,6 +2,8 @@ import {
   MIN_BACKOFF_MS,
   getNextBackoff,
   parseIncomingMessage,
+  decideAutofill,
+  domainsMatch,
   ConnectionStatus
 } from "./logic.js";
 
@@ -13,6 +15,112 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let currentBackoffMs = MIN_BACKOFF_MS;
 let tokenRejected = false;
 let isConnecting = false;
+
+interface TabInfo {
+  hostname: string;
+  protocol: string;
+  present: boolean;
+}
+
+type TabRegistry = Record<string, TabInfo>;
+
+interface StoredOtp {
+  sender: string;
+  senderDomain: string | null;
+  code: string;
+  account: string;
+  receivedAt: number;
+  used?: boolean;
+}
+
+async function getRegistry(): Promise<TabRegistry> {
+  try {
+    const res = await chrome.storage.session.get("tabRegistry");
+    if (res.tabRegistry && typeof res.tabRegistry === "object") {
+      return res.tabRegistry as TabRegistry;
+    }
+  } catch {}
+  return {};
+}
+
+async function setTabInfo(tabId: number, info: TabInfo): Promise<void> {
+  try {
+    const reg = await getRegistry();
+    reg[String(tabId)] = info;
+    await chrome.storage.session.set({ tabRegistry: reg });
+  } catch {}
+}
+
+async function removeTabInfo(tabId: number): Promise<void> {
+  try {
+    const reg = await getRegistry();
+    if (String(tabId) in reg) {
+      delete reg[String(tabId)];
+      await chrome.storage.session.set({ tabRegistry: reg });
+    }
+  } catch {}
+}
+
+if (chrome.tabs?.onRemoved) {
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    removeTabInfo(tabId).catch(() => {});
+  });
+}
+
+async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (tabs && tabs.length > 0 && tabs[0].id !== undefined) {
+      return tabs[0];
+    }
+  } catch {}
+  return null;
+}
+
+async function attemptAutofill(tabId: number, tabInfo: TabInfo): Promise<void> {
+  if (!tabInfo.present) {
+    return;
+  }
+
+  const activeTab = await getActiveTab();
+  if (!activeTab || activeTab.id !== tabId) {
+    return;
+  }
+
+  const session = await chrome.storage.session.get(["latestOtp", "otp"]);
+  const latestOtp = (session.latestOtp || session.otp) as StoredOtp | undefined;
+  if (!latestOtp || !latestOtp.code) {
+    return;
+  }
+
+  const local = await chrome.storage.local.get("askFirst");
+  const askFirst = Boolean(local.askFirst);
+
+  const ageMs = Date.now() - latestOtp.receivedAt;
+  const decision = decideAutofill({
+    askFirst,
+    protocol: tabInfo.protocol,
+    hostname: tabInfo.hostname,
+    senderDomain: latestOtp.senderDomain,
+    ageMs,
+    used: Boolean(latestOtp.used)
+  });
+
+  if (decision === "auto") {
+    try {
+      await chrome.tabs.sendMessage(
+        tabId,
+        { type: "fill", code: latestOtp.code },
+        { frameId: 0 }
+      );
+      latestOtp.used = true;
+      await chrome.storage.session.set({
+        latestOtp,
+        otp: latestOtp
+      });
+    } catch {}
+  }
+}
 
 async function getToken(): Promise<string | null> {
   try {
@@ -84,7 +192,6 @@ async function connect(): Promise<void> {
       if (ws !== socket) return;
       const msg = parseIncomingMessage(event.data);
       if (!msg) {
-        // Ignore unknown or malformed messages
         return;
       }
 
@@ -103,10 +210,27 @@ async function connect(): Promise<void> {
 
       if (msg.type === "otp") {
         const { sender, senderDomain, code, account, receivedAt } = msg;
+        const otpData: StoredOtp = {
+          sender,
+          senderDomain,
+          code,
+          account,
+          receivedAt,
+          used: false
+        };
         await chrome.storage.session.set({
-          latestOtp: { sender, senderDomain, code, account, receivedAt },
-          otp: { sender, senderDomain, code, account, receivedAt }
+          latestOtp: otpData,
+          otp: otpData
         });
+
+        const activeTab = await getActiveTab();
+        if (activeTab && activeTab.id !== undefined) {
+          const reg = await getRegistry();
+          const tabInfo = reg[String(activeTab.id)];
+          if (tabInfo && tabInfo.present) {
+            await attemptAutofill(activeTab.id, tabInfo);
+          }
+        }
       }
     };
 
@@ -116,7 +240,6 @@ async function connect(): Promise<void> {
       }
       isConnecting = false;
 
-      // Close code 4401 means token rejected
       if (event.code === 4401) {
         tokenRejected = true;
         clearReconnectTimer();
@@ -134,9 +257,7 @@ async function connect(): Promise<void> {
       scheduleReconnect();
     };
 
-    socket.onerror = () => {
-      // socket.onclose will fire right after onerror
-    };
+    socket.onerror = () => {};
   } catch {
     ws = null;
     isConnecting = false;
@@ -145,7 +266,6 @@ async function connect(): Promise<void> {
   }
 }
 
-// Ensure content scripts cannot read pairing token
 async function configureAccessLevel(): Promise<void> {
   try {
     if (chrome.storage?.local?.setAccessLevel) {
@@ -156,14 +276,12 @@ async function configureAccessLevel(): Promise<void> {
   } catch {}
 }
 
-// On install, restrict storage access and configure recurring alarm
 chrome.runtime.onInstalled.addListener(() => {
   configureAccessLevel();
   chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 });
   connect();
 });
 
-// Alarm triggers periodic health check / reconnection if disconnected
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ALARM_NAME) {
     if (!tokenRejected && (!ws || ws.readyState === WebSocket.CLOSED)) {
@@ -172,7 +290,6 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 });
 
-// React to token updates or deletion in storage
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === "local" && ("token" in changes || "pairToken" in changes)) {
     const change = changes.token || changes.pairToken;
@@ -195,8 +312,113 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
 });
 
-// Listen to commands from popup
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "fields") {
+    const tabId = sender.tab?.id;
+    const urlStr = sender.url || sender.tab?.url;
+    if (tabId !== undefined && urlStr) {
+      let hostname = "";
+      let protocol = "";
+      try {
+        const u = new URL(urlStr);
+        hostname = u.hostname.toLowerCase();
+        protocol = u.protocol.toLowerCase();
+      } catch {}
+
+      const present = Boolean(message.present);
+      const tabInfo: TabInfo = { hostname, protocol, present };
+      setTabInfo(tabId, tabInfo).then(() => {
+        if (present) {
+          return attemptAutofill(tabId, tabInfo);
+        }
+      }).catch(() => {});
+    }
+    sendResponse?.({ ok: true });
+    return true;
+  }
+
+  if (message?.type === "get-state") {
+    (async () => {
+      const local = await chrome.storage.local.get(["token", "pairToken", "askFirst"]);
+      const hasToken = Boolean(local.token || local.pairToken);
+      const askFirst = Boolean(local.askFirst);
+
+      const session = await chrome.storage.session.get(["status", "latestOtp", "otp"]);
+      let status: ConnectionStatus =
+        (session.status as ConnectionStatus) || (hasToken ? "connecting" : "not_paired");
+      if (!hasToken) {
+        status = "not_paired";
+      }
+
+      const latest = ((session.latestOtp || session.otp) as StoredOtp | undefined) || null;
+
+      let tabHostname = "";
+      let present = false;
+      const activeTab = await getActiveTab();
+      if (activeTab && activeTab.id !== undefined) {
+        const reg = await getRegistry();
+        const tabInfo = reg[String(activeTab.id)];
+        if (tabInfo) {
+          tabHostname = tabInfo.hostname;
+          present = Boolean(tabInfo.present);
+        }
+      }
+
+      let mismatch = false;
+      if (latest && tabHostname) {
+        if (!latest.senderDomain || !domainsMatch(latest.senderDomain, tabHostname)) {
+          mismatch = true;
+        }
+      } else if (latest && !latest.senderDomain) {
+        mismatch = true;
+      }
+
+      sendResponse({
+        status,
+        latest,
+        tabHostname,
+        present,
+        mismatch,
+        askFirst
+      });
+    })();
+    return true;
+  }
+
+  if (message?.type === "fill-now") {
+    (async () => {
+      const activeTab = await getActiveTab();
+      if (!activeTab || activeTab.id === undefined) {
+        sendResponse?.({ ok: false, error: "no_active_tab" });
+        return;
+      }
+
+      const session = await chrome.storage.session.get(["latestOtp", "otp"]);
+      const latest = (session.latestOtp || session.otp) as StoredOtp | undefined;
+      if (!latest || !latest.code) {
+        sendResponse?.({ ok: false, error: "no_otp" });
+        return;
+      }
+
+      try {
+        await chrome.tabs.sendMessage(
+          activeTab.id,
+          { type: "fill", code: latest.code },
+          { frameId: 0 }
+        );
+        latest.used = true;
+        await chrome.storage.session.set({
+          latestOtp: latest,
+          otp: latest
+        });
+        sendResponse?.({ ok: true });
+      } catch {
+        sendResponse?.({ ok: false, error: "send_failed" });
+      }
+    })();
+    return true;
+  }
+
   if (message?.type === "connect" || message?.type === "reconnect") {
     tokenRejected = false;
     currentBackoffMs = MIN_BACKOFF_MS;
@@ -205,6 +427,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse?.({ ok: true });
     return true;
   }
+
   if (message?.type === "forget") {
     tokenRejected = false;
     currentBackoffMs = MIN_BACKOFF_MS;
@@ -217,9 +440,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse?.({ ok: true });
     return true;
   }
+
   return false;
 });
 
-// Run initial connect when service worker starts
 configureAccessLevel();
 connect();

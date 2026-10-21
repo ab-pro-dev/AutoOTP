@@ -328,3 +328,196 @@ export function domainsMatch(
   return regSender === regPage;
 }
 
+export interface DecideAutofillParams {
+  askFirst: boolean;
+  protocol: string;
+  hostname: string;
+  senderDomain: string | null;
+  ageMs: number;
+  used: boolean;
+}
+
+export type AutofillDecision = "auto" | "manual" | "none";
+
+/**
+ * Evaluates whether an OTP should be auto-filled, manually filled, or ignored.
+ * - ageMs > 10 minutes (600,000 ms) returns "none"
+ * - askFirst returns "manual"
+ * - protocol !== "https:" returns "manual"
+ * - used returns "manual"
+ * - senderDomain null or !domainsMatch(senderDomain, hostname) returns "manual"
+ * - ageMs > 2 minutes (120,000 ms) returns "manual"
+ * - otherwise "auto"
+ */
+export function decideAutofill(params: DecideAutofillParams): AutofillDecision {
+  const { askFirst, protocol, hostname, senderDomain, ageMs, used } = params;
+  if (ageMs > 10 * 60 * 1000) {
+    return "none";
+  }
+  if (askFirst) {
+    return "manual";
+  }
+  if (protocol !== "https:") {
+    return "manual";
+  }
+  if (used) {
+    return "manual";
+  }
+  if (!senderDomain || !domainsMatch(senderDomain, hostname)) {
+    return "manual";
+  }
+  if (ageMs > 2 * 60 * 1000) {
+    return "manual";
+  }
+  return "auto";
+}
+
+export interface FieldDescriptor {
+  type?: string;
+  name?: string;
+  id?: string;
+  placeholder?: string;
+  ariaLabel?: string;
+  autocomplete?: string;
+  maxLength?: number;
+  visible?: boolean;
+  [key: string]: unknown;
+}
+
+export const OTP_REGEX = /otp|one.?time|verif|passcode|2fa|security.?code|\bcode\b/i;
+export const REJECT_NAME_REGEX = /search|coupon|promo|zip|postal|phone|card|cvv|cvc/i;
+
+/**
+ * Scores an input descriptor for OTP candidacy.
+ * Accept autocomplete="one-time-code" (highest score).
+ * Accept type text/tel/number when name/id/placeholder/aria-label match
+ * /otp|one.?time|verif|passcode|2fa|security.?code|\bcode\b/i with maxLength 4-10 (or unset).
+ * Reject password/email/hidden/invisible inputs and names matching
+ * /search|coupon|promo|zip|postal|phone|card|cvv|cvc/i.
+ */
+export function scoreField(descriptor: FieldDescriptor): number {
+  if (descriptor.visible === false) {
+    return 0;
+  }
+
+  const type = (descriptor.type || "text").toLowerCase().trim();
+  if (type === "password" || type === "email" || type === "hidden") {
+    return 0;
+  }
+  if (type !== "text" && type !== "tel" && type !== "number") {
+    return 0;
+  }
+
+  if (descriptor.name && REJECT_NAME_REGEX.test(descriptor.name)) {
+    return 0;
+  }
+
+  const hasLength =
+    descriptor.maxLength !== undefined &&
+    descriptor.maxLength !== null &&
+    descriptor.maxLength > 0 &&
+    descriptor.maxLength <= 100;
+
+  if (hasLength) {
+    if (descriptor.maxLength! < 4 || descriptor.maxLength! > 10) {
+      return 0;
+    }
+  }
+
+  const isOneTimeCode = (descriptor.autocomplete || "").toLowerCase().trim() === "one-time-code";
+
+  const aria =
+    descriptor.ariaLabel ||
+    (descriptor as Record<string, unknown>)["aria-label"];
+  const textFields = [
+    descriptor.name,
+    descriptor.id,
+    descriptor.placeholder,
+    typeof aria === "string" ? aria : undefined
+  ].filter((s): s is string => typeof s === "string" && s.length > 0);
+
+  const matchesOtpRegex = textFields.some((t) => OTP_REGEX.test(t));
+
+  if (!isOneTimeCode && !matchesOtpRegex) {
+    return 0;
+  }
+
+  let score = 0;
+  if (isOneTimeCode) {
+    score += 100;
+  }
+  if (matchesOtpRegex) {
+    score += 50;
+    for (const t of textFields) {
+      if (OTP_REGEX.test(t)) {
+        score += 10;
+      }
+    }
+  }
+
+  return score;
+}
+
+function isSegmentedField(desc: FieldDescriptor): boolean {
+  if (desc.visible === false) return false;
+  const type = (desc.type || "text").toLowerCase().trim();
+  if (type !== "text" && type !== "tel" && type !== "number") return false;
+  if (desc.maxLength !== 1) return false;
+  if (desc.name && REJECT_NAME_REGEX.test(desc.name)) return false;
+  return true;
+}
+
+/**
+ * Detects 4-8 consecutive single-character inputs (maxLength=1).
+ */
+export function groupSegmented<T extends FieldDescriptor>(descriptors: T[]): T[][] {
+  const groups: T[][] = [];
+  let current: T[] = [];
+
+  for (const desc of descriptors) {
+    if (isSegmentedField(desc)) {
+      current.push(desc);
+    } else {
+      if (current.length >= 4 && current.length <= 8) {
+        groups.push(current);
+      }
+      current = [];
+    }
+  }
+
+  if (current.length >= 4 && current.length <= 8) {
+    groups.push(current);
+  }
+
+  return groups;
+}
+
+export interface FieldsMessage {
+  type: "fields";
+  present: boolean;
+}
+
+export function validateFieldsMessage(msg: unknown): FieldsMessage | null {
+  if (!msg || typeof msg !== "object") return null;
+  const m = msg as Record<string, unknown>;
+  if (m.type !== "fields") return null;
+  if (typeof m.present !== "boolean") return null;
+  return { type: "fields", present: m.present };
+}
+
+export interface FillMessage {
+  type: "fill";
+  code: string;
+}
+
+export const OTP_CODE_REGEX = /^[A-Za-z0-9]{4,10}$/;
+
+export function validateFillMessage(msg: unknown): FillMessage | null {
+  if (!msg || typeof msg !== "object") return null;
+  const m = msg as Record<string, unknown>;
+  if (m.type !== "fill") return null;
+  if (typeof m.code !== "string" || !OTP_CODE_REGEX.test(m.code)) return null;
+  return { type: "fill", code: m.code };
+}
+
+

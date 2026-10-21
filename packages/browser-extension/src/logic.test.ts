@@ -13,7 +13,13 @@ import {
   MULTI_PART_PUBLIC_SUFFIXES,
   MIN_BACKOFF_MS,
   MAX_BACKOFF_MS,
-  OTP_MAX_AGE_MS
+  OTP_MAX_AGE_MS,
+  decideAutofill,
+  scoreField,
+  groupSegmented,
+  validateFieldsMessage,
+  validateFillMessage,
+  FieldDescriptor
 } from "./logic.js";
 
 describe("Backoff Calculation", () => {
@@ -444,4 +450,335 @@ describe("Domain Matching (domainsMatch & getRegistrableDomain)", () => {
     }
   });
 });
+
+describe("decideAutofill", () => {
+  const baseParams = {
+    askFirst: false,
+    protocol: "https:",
+    hostname: "github.com",
+    senderDomain: "github.com",
+    ageMs: 5000,
+    used: false
+  };
+
+  it("returns 'auto' when all conditions are fresh and matching", () => {
+    expect(decideAutofill(baseParams)).toBe("auto");
+    expect(decideAutofill({ ...baseParams, hostname: "mail.github.com" })).toBe("auto");
+  });
+
+  it("returns 'none' when ageMs > 10 minutes (600,000 ms)", () => {
+    expect(decideAutofill({ ...baseParams, ageMs: 600001 })).toBe("none");
+    expect(decideAutofill({ ...baseParams, ageMs: 660000 })).toBe("none");
+    expect(decideAutofill({ ...baseParams, ageMs: 1000000 })).toBe("none");
+  });
+
+  it("prioritizes ageMs > 10 minutes 'none' over any other setting", () => {
+    expect(
+      decideAutofill({
+        ...baseParams,
+        ageMs: 660000,
+        askFirst: true,
+        protocol: "http:",
+        used: true,
+        senderDomain: "evil.com"
+      })
+    ).toBe("none");
+  });
+
+  it("returns 'manual' when askFirst is true", () => {
+    expect(decideAutofill({ ...baseParams, askFirst: true })).toBe("manual");
+  });
+
+  it("returns 'manual' when protocol !== 'https:'", () => {
+    expect(decideAutofill({ ...baseParams, protocol: "http:" })).toBe("manual");
+    expect(decideAutofill({ ...baseParams, protocol: "chrome-extension:" })).toBe("manual");
+    expect(decideAutofill({ ...baseParams, protocol: "" })).toBe("manual");
+  });
+
+  it("returns 'manual' when used is true", () => {
+    expect(decideAutofill({ ...baseParams, used: true })).toBe("manual");
+  });
+
+  it("returns 'manual' when senderDomain is null or undefined or mismatched", () => {
+    expect(decideAutofill({ ...baseParams, senderDomain: null })).toBe("manual");
+    expect(decideAutofill({ ...baseParams, senderDomain: "" })).toBe("manual");
+    expect(decideAutofill({ ...baseParams, hostname: "evil.com" })).toBe("manual");
+    expect(decideAutofill({ ...baseParams, hostname: "github.com.evil.com" })).toBe("manual");
+  });
+
+  it("returns 'manual' when ageMs > 2 minutes (120,000 ms) and <= 10 minutes", () => {
+    expect(decideAutofill({ ...baseParams, ageMs: 120001 })).toBe("manual");
+    expect(decideAutofill({ ...baseParams, ageMs: 180000 })).toBe("manual");
+    expect(decideAutofill({ ...baseParams, ageMs: 600000 })).toBe("manual");
+  });
+
+  it("returns 'auto' when ageMs is exactly 2 minutes (120,000 ms)", () => {
+    expect(decideAutofill({ ...baseParams, ageMs: 120000 })).toBe("auto");
+  });
+
+  it("matches the exact verification table from instructions", () => {
+    const b = {
+      askFirst: false,
+      protocol: "https:",
+      hostname: "github.com",
+      senderDomain: "github.com",
+      ageMs: 5000,
+      used: false
+    };
+    const cases: Array<[string, Partial<typeof b>, string]> = [
+      ["match", {}, "auto"],
+      ["evil host", { hostname: "evil.com" }, "manual"],
+      ["http", { protocol: "http:" }, "manual"],
+      ["askFirst", { askFirst: true }, "manual"],
+      ["3 min old", { ageMs: 180000 }, "manual"],
+      ["11 min old", { ageMs: 660000 }, "none"],
+      ["used", { used: true }, "manual"]
+    ];
+
+    for (const [, override, expected] of cases) {
+      expect(decideAutofill({ ...b, ...override })).toBe(expected);
+    }
+  });
+});
+
+describe("scoreField", () => {
+  it("assigns highest score (>= 100) to autocomplete='one-time-code'", () => {
+    const score1 = scoreField({ autocomplete: "one-time-code", visible: true });
+    expect(score1).toBeGreaterThanOrEqual(100);
+
+    const score2 = scoreField({
+      type: "text",
+      autocomplete: "ONE-TIME-CODE",
+      maxLength: 6,
+      visible: true
+    });
+    expect(score2).toBeGreaterThanOrEqual(100);
+
+    const regexOnlyScore = scoreField({
+      type: "text",
+      name: "otp",
+      visible: true
+    });
+    expect(score1).toBeGreaterThan(regexOnlyScore);
+  });
+
+  it("accepts inputs matching OTP regex on name, id, placeholder, or ariaLabel", () => {
+    expect(scoreField({ type: "text", name: "otp", visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ type: "text", name: "one-time-passcode", visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ type: "text", name: "onetime_code", visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ type: "text", id: "user_verification", visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ type: "text", id: "verify_input", visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ type: "text", name: "passcode", visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ type: "text", name: "2fa", visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ type: "text", id: "security-code", visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ type: "text", id: "security_code", visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ type: "text", placeholder: "Enter code here", visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ type: "text", ariaLabel: "Verification code", visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ type: "text", "aria-label": "Enter your OTP", visible: true })).toBeGreaterThan(0);
+  });
+
+  it("accepts type text, tel, number, and unset type", () => {
+    expect(scoreField({ type: "text", name: "otp", visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ type: "tel", name: "otp", visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ type: "number", name: "otp", visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ name: "otp", visible: true })).toBeGreaterThan(0);
+  });
+
+  it("accepts maxLength 4-10 or unset", () => {
+    expect(scoreField({ name: "otp", maxLength: 4, visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ name: "otp", maxLength: 6, visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ name: "otp", maxLength: 8, visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ name: "otp", maxLength: 10, visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ name: "otp", maxLength: undefined, visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ name: "otp", maxLength: -1, visible: true })).toBeGreaterThan(0);
+    expect(scoreField({ name: "otp", maxLength: 524288, visible: true })).toBeGreaterThan(0);
+  });
+
+  it("rejects password, email, hidden, and invisible inputs", () => {
+    expect(scoreField({ type: "password", name: "otp", visible: true })).toBe(0);
+    expect(scoreField({ type: "email", name: "otp", visible: true })).toBe(0);
+    expect(scoreField({ type: "hidden", name: "otp", visible: true })).toBe(0);
+    expect(scoreField({ type: "text", name: "otp", visible: false })).toBe(0);
+    expect(scoreField({ type: "checkbox", name: "otp", visible: true })).toBe(0);
+    expect(scoreField({ type: "submit", name: "otp", visible: true })).toBe(0);
+  });
+
+  it("rejects names matching /search|coupon|promo|zip|postal|phone|card|cvv|cvc/i", () => {
+    expect(scoreField({ type: "text", name: "search", autocomplete: "one-time-code", visible: true })).toBe(0);
+    expect(scoreField({ type: "text", name: "site_search_query", visible: true })).toBe(0);
+    expect(scoreField({ type: "text", name: "coupon_code", visible: true })).toBe(0);
+    expect(scoreField({ type: "text", name: "promo_code", visible: true })).toBe(0);
+    expect(scoreField({ type: "text", name: "zip_code", visible: true })).toBe(0);
+    expect(scoreField({ type: "text", name: "postal_code", visible: true })).toBe(0);
+    expect(scoreField({ type: "text", name: "phone_number", visible: true })).toBe(0);
+    expect(scoreField({ type: "text", name: "credit_card_code", visible: true })).toBe(0);
+    expect(scoreField({ type: "text", name: "card_cvv", visible: true })).toBe(0);
+    expect(scoreField({ type: "text", name: "card_cvc", visible: true })).toBe(0);
+  });
+
+  it("rejects non-segmented maxLength outside 4-10 range", () => {
+    expect(scoreField({ type: "text", name: "otp", maxLength: 1, visible: true })).toBe(0);
+    expect(scoreField({ type: "text", name: "otp", maxLength: 2, visible: true })).toBe(0);
+    expect(scoreField({ type: "text", name: "otp", maxLength: 3, visible: true })).toBe(0);
+    expect(scoreField({ type: "text", name: "otp", maxLength: 11, visible: true })).toBe(0);
+    expect(scoreField({ type: "text", name: "otp", maxLength: 20, visible: true })).toBe(0);
+  });
+
+  it("returns 0 for irrelevant inputs", () => {
+    expect(scoreField({ type: "text", name: "username", visible: true })).toBe(0);
+    expect(scoreField({ type: "text", name: "first_name", visible: true })).toBe(0);
+    expect(scoreField({ type: "text", placeholder: "Your email address", visible: true })).toBe(0);
+  });
+});
+
+describe("groupSegmented", () => {
+  const makeSegInput = (id: string, overrides: Partial<FieldDescriptor> = {}): FieldDescriptor => ({
+    id,
+    type: "text",
+    maxLength: 1,
+    visible: true,
+    ...overrides
+  });
+
+  it("detects 4, 6, and 8 consecutive single-character inputs", () => {
+    const group4 = [makeSegInput("s1"), makeSegInput("s2"), makeSegInput("s3"), makeSegInput("s4")];
+    expect(groupSegmented(group4)).toHaveLength(1);
+    expect(groupSegmented(group4)[0]).toHaveLength(4);
+
+    const group6 = [
+      makeSegInput("s1"),
+      makeSegInput("s2"),
+      makeSegInput("s3"),
+      makeSegInput("s4"),
+      makeSegInput("s5"),
+      makeSegInput("s6")
+    ];
+    expect(groupSegmented(group6)).toHaveLength(1);
+    expect(groupSegmented(group6)[0]).toHaveLength(6);
+
+    const group8 = Array.from({ length: 8 }, (_, i) => makeSegInput(`s${i}`));
+    expect(groupSegmented(group8)).toHaveLength(1);
+    expect(groupSegmented(group8)[0]).toHaveLength(8);
+  });
+
+  it("does not detect groups with fewer than 4 or more than 8 inputs", () => {
+    const group3 = [makeSegInput("s1"), makeSegInput("s2"), makeSegInput("s3")];
+    expect(groupSegmented(group3)).toHaveLength(0);
+
+    const group9 = Array.from({ length: 9 }, (_, i) => makeSegInput(`s${i}`));
+    expect(groupSegmented(group9)).toHaveLength(0);
+
+    const group10 = Array.from({ length: 10 }, (_, i) => makeSegInput(`s${i}`));
+    expect(groupSegmented(group10)).toHaveLength(0);
+  });
+
+  it("breaks consecutive run when an input is invisible or non-single-char", () => {
+    const brokenInvisible = [
+      makeSegInput("s1"),
+      makeSegInput("s2"),
+      makeSegInput("s3"),
+      makeSegInput("s4", { visible: false }),
+      makeSegInput("s5"),
+      makeSegInput("s6")
+    ];
+    expect(groupSegmented(brokenInvisible)).toHaveLength(0);
+
+    const brokenMaxLength = [
+      makeSegInput("s1"),
+      makeSegInput("s2"),
+      makeSegInput("s3"),
+      makeSegInput("s4", { maxLength: 2 }),
+      makeSegInput("s5"),
+      makeSegInput("s6")
+    ];
+    expect(groupSegmented(brokenMaxLength)).toHaveLength(0);
+
+    const brokenType = [
+      makeSegInput("s1"),
+      makeSegInput("s2"),
+      makeSegInput("s3"),
+      makeSegInput("s4", { type: "password" }),
+      makeSegInput("s5"),
+      makeSegInput("s6")
+    ];
+    expect(groupSegmented(brokenType)).toHaveLength(0);
+  });
+
+  it("detects multiple independent groups separated by other elements", () => {
+    const mixed = [
+      makeSegInput("a1"),
+      makeSegInput("a2"),
+      makeSegInput("a3"),
+      makeSegInput("a4"),
+      makeSegInput("a5"),
+      makeSegInput("a6"),
+      { type: "text", name: "other", maxLength: 20, visible: true },
+      makeSegInput("b1"),
+      makeSegInput("b2"),
+      makeSegInput("b3"),
+      makeSegInput("b4")
+    ];
+    const detected = groupSegmented(mixed);
+    expect(detected).toHaveLength(2);
+    expect(detected[0]).toHaveLength(6);
+    expect(detected[1]).toHaveLength(4);
+  });
+
+  it("returns empty array for empty inputs", () => {
+    expect(groupSegmented([])).toHaveLength(0);
+  });
+});
+
+describe("Message Validation", () => {
+  it("validates fields message correctly", () => {
+    expect(validateFieldsMessage({ type: "fields", present: true })).toEqual({
+      type: "fields",
+      present: true
+    });
+    expect(validateFieldsMessage({ type: "fields", present: false })).toEqual({
+      type: "fields",
+      present: false
+    });
+
+    expect(validateFieldsMessage({ type: "fields" })).toBeNull();
+    expect(validateFieldsMessage({ type: "fields", present: "true" })).toBeNull();
+    expect(validateFieldsMessage({ type: "other", present: true })).toBeNull();
+    expect(validateFieldsMessage(null)).toBeNull();
+    expect(validateFieldsMessage("invalid")).toBeNull();
+  });
+
+  it("validates fill message correctly with 4-10 alphanumeric codes", () => {
+    expect(validateFillMessage({ type: "fill", code: "1234" })).toEqual({
+      type: "fill",
+      code: "1234"
+    });
+    expect(validateFillMessage({ type: "fill", code: "892147" })).toEqual({
+      type: "fill",
+      code: "892147"
+    });
+    expect(validateFillMessage({ type: "fill", code: "ABCDEF12" })).toEqual({
+      type: "fill",
+      code: "ABCDEF12"
+    });
+    expect(validateFillMessage({ type: "fill", code: "0123456789" })).toEqual({
+      type: "fill",
+      code: "0123456789"
+    });
+
+    // Too short (< 4)
+    expect(validateFillMessage({ type: "fill", code: "123" })).toBeNull();
+    // Too long (> 10)
+    expect(validateFillMessage({ type: "fill", code: "12345678901" })).toBeNull();
+    // Special characters
+    expect(validateFillMessage({ type: "fill", code: "123-456" })).toBeNull();
+    expect(validateFillMessage({ type: "fill", code: "123 456" })).toBeNull();
+    // Non-string code
+    expect(validateFillMessage({ type: "fill", code: 123456 })).toBeNull();
+    // Wrong type
+    expect(validateFillMessage({ type: "not-fill", code: "123456" })).toBeNull();
+    expect(validateFillMessage(null)).toBeNull();
+    expect(validateFillMessage({})).toBeNull();
+  });
+});
+
 
