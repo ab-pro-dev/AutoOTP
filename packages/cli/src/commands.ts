@@ -3,7 +3,9 @@ import {
   getHomeDir,
   loadConfig,
   saveConfig,
-  getOrCreatePairToken
+  getOrCreatePairToken,
+  HistoryStore,
+  HistoryRetention
 } from "@autootp/shared";
 import { loginWithBrowser, watchAccount, ReauthRequiredError } from "@autootp/gmail";
 import { startService } from "@autootp/service";
@@ -15,6 +17,7 @@ import {
   formatAccountsTable,
   revokeToken,
   formatOtpNotification,
+  formatHistoryTable,
   AccountEntry
 } from "./utils.js";
 
@@ -23,6 +26,7 @@ export interface CommandContext {
   fetchImpl?: typeof fetch;
   signal?: AbortSignal;
   pollMs?: number;
+  exitImpl?: (code: number) => void;
 }
 
 export async function loginAction(
@@ -201,6 +205,66 @@ export async function serviceAction(
     signal: options.signal,
     exitImpl: options.exitImpl
   });
+}
+
+export async function configAction(context: CommandContext = {}): Promise<void> {
+  const homeDir = context.homeDir ?? getHomeDir();
+  const config = loadConfig(homeDir);
+  console.log(`historyRetention: ${config.historyRetention}`);
+}
+
+export async function configSetAction(
+  key: string,
+  value: string,
+  context: CommandContext = {}
+): Promise<void> {
+  const exit = context.exitImpl ?? process.exit;
+  const homeDir = context.homeDir ?? getHomeDir();
+
+  if (key !== "historyRetention") {
+    console.error(
+      `Unknown configuration key "${key}". Only "historyRetention" can be configured.`
+    );
+    exit(1);
+    return;
+  }
+
+  if (value !== "off" && value !== "5m" && value !== "30m" && value !== "1h") {
+    console.error(
+      `Invalid value "${value}" for historyRetention. Valid values: off, 5m, 30m, 1h`
+    );
+    exit(1);
+    return;
+  }
+
+  saveConfig({ historyRetention: value as HistoryRetention }, homeDir);
+  console.log(`historyRetention: ${value}`);
+}
+
+export async function historyAction(context: CommandContext = {}): Promise<void> {
+  const homeDir = context.homeDir ?? getHomeDir();
+  const store = new HistoryStore(homeDir);
+  try {
+    const entries = store.list();
+    if (entries.length === 0) {
+      console.log("No history.");
+      return;
+    }
+    console.log(formatHistoryTable(entries));
+  } finally {
+    store.close();
+  }
+}
+
+export async function clearAction(context: CommandContext = {}): Promise<void> {
+  const homeDir = context.homeDir ?? getHomeDir();
+  const store = new HistoryStore(homeDir);
+  try {
+    const count = store.clear();
+    console.log(`Cleared ${count} ${count === 1 ? "row" : "rows"} from history.`);
+  } finally {
+    store.close();
+  }
 }
 
 export * from "./autostart.js";

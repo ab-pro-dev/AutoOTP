@@ -3,16 +3,27 @@ import fs from "node:fs";
 import path from "node:path";
 import { getHomeDir, ensureHomeDir } from "./paths.js";
 
+export type HistoryRetention = "off" | "5m" | "30m" | "1h";
+
+export const VALID_HISTORY_RETENTIONS: ReadonlySet<string> = new Set([
+  "off",
+  "5m",
+  "30m",
+  "1h"
+]);
+
 export interface AutoOtpConfig {
   allowedOrigins: string[];
   port: number;
   pollMs: number;
+  historyRetention: HistoryRetention;
 }
 
 export const DEFAULT_CONFIG: Readonly<AutoOtpConfig> = Object.freeze({
   allowedOrigins: [],
   port: 47821,
-  pollMs: 3000
+  pollMs: 3000,
+  historyRetention: "5m"
 });
 
 export const CHROME_EXTENSION_ORIGIN_REGEX = /^chrome-extension:\/\/[a-p]{32}$/;
@@ -51,6 +62,17 @@ export function validateConfig(config: unknown): asserts config is AutoOtpConfig
       );
     }
   }
+
+  if (c.historyRetention !== undefined) {
+    if (
+      typeof c.historyRetention !== "string" ||
+      !VALID_HISTORY_RETENTIONS.has(c.historyRetention)
+    ) {
+      throw new Error(
+        `Invalid configuration: historyRetention must be one of 'off', '5m', '30m', '1h', got ${String(c.historyRetention)}`
+      );
+    }
+  }
 }
 
 /**
@@ -66,7 +88,8 @@ export function loadConfig(homeDir: string = getHomeDir()): AutoOtpConfig {
     return {
       allowedOrigins: [...DEFAULT_CONFIG.allowedOrigins],
       port: DEFAULT_CONFIG.port,
-      pollMs: DEFAULT_CONFIG.pollMs
+      pollMs: DEFAULT_CONFIG.pollMs,
+      historyRetention: DEFAULT_CONFIG.historyRetention
     };
   }
 
@@ -83,7 +106,8 @@ export function loadConfig(homeDir: string = getHomeDir()): AutoOtpConfig {
   return {
     allowedOrigins: [...parsed.allowedOrigins],
     port: parsed.port,
-    pollMs: parsed.pollMs
+    pollMs: parsed.pollMs,
+    historyRetention: parsed.historyRetention ?? DEFAULT_CONFIG.historyRetention
   };
 }
 
@@ -97,10 +121,12 @@ export function saveConfig(
   ensureHomeDir(homeDir);
   const configPath = path.join(homeDir, "config.json");
 
+  const current = fs.existsSync(configPath) ? loadConfig(homeDir) : DEFAULT_CONFIG;
   const merged: AutoOtpConfig = {
-    allowedOrigins: config.allowedOrigins ?? [...DEFAULT_CONFIG.allowedOrigins],
-    port: config.port ?? DEFAULT_CONFIG.port,
-    pollMs: config.pollMs ?? DEFAULT_CONFIG.pollMs
+    allowedOrigins: config.allowedOrigins ?? [...current.allowedOrigins],
+    port: config.port ?? current.port,
+    pollMs: config.pollMs ?? current.pollMs,
+    historyRetention: config.historyRetention ?? current.historyRetention
   };
 
   validateConfig(merged);

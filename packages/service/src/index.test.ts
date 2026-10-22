@@ -6,7 +6,8 @@ import { WebSocket } from "ws";
 import {
   TokenStore,
   saveConfig,
-  getOrCreatePairToken
+  getOrCreatePairToken,
+  HistoryStore
 } from "@autootp/shared";
 import { startService } from "./index.js";
 
@@ -222,5 +223,14 @@ describe("AutoOTP Service (packages/service)", () => {
     expect(receivedOtp.account).toBe("personal");
     expect(receivedOtp.code).toBe("782103");
     expect(receivedOtp.sender).toBe("Service");
+
+    // Verify OTP was saved to history
+    const historyStore = new HistoryStore(tempDir);
+    const historyEntries = historyStore.list();
+    expect(historyEntries).toHaveLength(1);
+    expect(historyEntries[0].code).toBe("782103");
+    expect(historyEntries[0].sender).toBe("Service");
+    expect(historyEntries[0].alias).toBe("personal");
+    historyStore.close();
   });
 });

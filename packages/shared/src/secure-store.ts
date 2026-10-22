@@ -9,11 +9,74 @@ export interface StoredTokens {
   addedAt: number;
 }
 
-interface EncryptedPayload {
+export interface EncryptedPayload {
   v: 1;
   iv: string;
   tag: string;
   data: string;
+}
+
+/**
+ * Encrypts a plaintext string using AES-256-GCM with a fresh 12-byte IV.
+ * Returns the payload serialized as JSON containing base64 fields.
+ */
+export function encryptPayload(plaintext: string, key: Buffer): string {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const encrypted = Buffer.concat([
+    cipher.update(Buffer.from(plaintext, "utf8")),
+    cipher.final()
+  ]);
+  const tag = cipher.getAuthTag();
+
+  const payload: EncryptedPayload = {
+    v: 1,
+    iv: iv.toString("base64"),
+    tag: tag.toString("base64"),
+    data: encrypted.toString("base64")
+  };
+  return JSON.stringify(payload);
+}
+
+/**
+ * Decrypts a base64 JSON payload encrypted with AES-256-GCM.
+ */
+export function decryptPayload(codeEnc: string, key: Buffer): string {
+  let jsonStr = codeEnc;
+  if (!jsonStr.startsWith("{")) {
+    try {
+      jsonStr = Buffer.from(codeEnc, "base64").toString("utf8");
+    } catch {}
+  }
+
+  let payload: EncryptedPayload;
+  try {
+    payload = JSON.parse(jsonStr);
+  } catch {
+    throw new Error("Encrypted payload could not be decrypted");
+  }
+
+  if (
+    !payload ||
+    payload.v !== 1 ||
+    typeof payload.iv !== "string" ||
+    typeof payload.tag !== "string" ||
+    typeof payload.data !== "string"
+  ) {
+    throw new Error("Encrypted payload could not be decrypted");
+  }
+
+  const iv = Buffer.from(payload.iv, "base64");
+  const tag = Buffer.from(payload.tag, "base64");
+  const data = Buffer.from(payload.data, "base64");
+
+  if (iv.length !== 12 || tag.length !== 16) {
+    throw new Error("Encrypted payload could not be decrypted");
+  }
+
+  const decipher = crypto.createDecipheriv("aes-256-gcm", key, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(data), decipher.final()]).toString("utf8");
 }
 
 /**

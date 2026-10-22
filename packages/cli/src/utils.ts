@@ -126,6 +126,62 @@ export function formatAccountsTable(accounts: AccountEntry[]): string {
 }
 
 /**
+ * Formats a timestamp into relative age string: e.g. "5s ago", "2m ago", "1h ago".
+ */
+export function formatAge(receivedAt: number, now = Date.now()): string {
+  const diffMs = Math.max(0, now - receivedAt);
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) {
+    return `${diffSec}s ago`;
+  }
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) {
+    return `${diffMin}m ago`;
+  }
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) {
+    return `${diffHours}h ago`;
+  }
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+}
+
+/**
+ * Formats OTP history entries into a table of age, sender, alias, and code.
+ */
+export function formatHistoryTable(
+  entries: Array<{ sender: string; alias: string; code: string; receivedAt: number }>,
+  now = Date.now()
+): string {
+  if (entries.length === 0) {
+    return "No history.";
+  }
+
+  const headers = ["AGE", "SENDER", "ALIAS", "CODE"];
+  const rows = entries.map((entry) => [
+    formatAge(entry.receivedAt, now),
+    entry.sender,
+    entry.alias,
+    entry.code
+  ]);
+
+  const colWidths = [
+    Math.max(headers[0].length, ...rows.map((r) => r[0].length)),
+    Math.max(headers[1].length, ...rows.map((r) => r[1].length)),
+    Math.max(headers[2].length, ...rows.map((r) => r[2].length)),
+    Math.max(headers[3].length, ...rows.map((r) => r[3].length))
+  ];
+
+  const headerLine = headers.map((h, i) => h.padEnd(colWidths[i])).join("  ");
+  const dividerLine = colWidths.map((w) => "-".repeat(w)).join("  ");
+  const dataLines = rows.map((r) =>
+    r.map((cell, i) => cell.padEnd(colWidths[i])).join("  ")
+  );
+
+  return [headerLine, dividerLine, ...dataLines].join("\n");
+}
+
+/**
  * Attempts a best-effort token revocation with Google OAuth revoke endpoint.
  */
 export async function revokeToken(

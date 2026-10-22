@@ -7,7 +7,8 @@ import {
   TokenStore,
   formatOtpNotification,
   ConfigurationError,
-  AutoOtpConfig
+  AutoOtpConfig,
+  HistoryStore
 } from "@autootp/shared";
 import { watchAccount, ReauthRequiredError } from "@autootp/gmail";
 import { createOtpServer, OtpServer } from "@autootp/websocket";
@@ -21,6 +22,7 @@ export interface StartServiceOptions {
   onStarted?: (info: { port: number; server: OtpServer }) => void | Promise<void>;
   config?: AutoOtpConfig;
   token?: string;
+  historyStore?: HistoryStore;
 }
 
 /**
@@ -82,6 +84,25 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
 
   process.once("SIGINT", onSigint);
 
+  let historyStore: HistoryStore | null = null;
+  try {
+    historyStore = options.historyStore ?? new HistoryStore(homeDir);
+    historyStore.purge();
+  } catch {
+    // Wrap history errors so they can never stop OTP delivery
+  }
+
+  const purgeInterval = setInterval(() => {
+    try {
+      historyStore?.purge();
+    } catch {
+      // Wrap history errors so they can never stop OTP delivery
+    }
+  }, 60000);
+  if (purgeInterval.unref) {
+    purgeInterval.unref();
+  }
+
   let server: OtpServer;
   try {
     server = await createOtpServer({
@@ -90,6 +111,10 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
       allowedOrigins: config.allowedOrigins
     });
   } catch (err: unknown) {
+    clearInterval(purgeInterval);
+    try {
+      historyStore?.close();
+    } catch {}
     process.removeListener("SIGINT", onSigint);
     if (options.signal) {
       options.signal.removeEventListener("abort", onParentAbort);
@@ -139,6 +164,22 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
                 receivedAt: otp.receivedAt
               })
             );
+
+            // Add to history and purge
+            try {
+              if (historyStore) {
+                historyStore.add({
+                  sender: otp.sender,
+                  senderDomain: otp.senderDomain,
+                  alias,
+                  code: otp.code,
+                  receivedAt: otp.receivedAt
+                });
+                historyStore.purge();
+              }
+            } catch {
+              // Wrap history errors so they can never stop OTP delivery
+            }
           },
           onError: (err) => {
             if (
@@ -182,6 +223,10 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
   try {
     await Promise.all([abortPromise, ...watcherPromises]);
   } finally {
+    clearInterval(purgeInterval);
+    try {
+      historyStore?.close();
+    } catch {}
     abortCleanup?.();
     process.removeListener("SIGINT", onSigint);
     if (options.signal) {

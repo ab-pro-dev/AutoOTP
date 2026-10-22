@@ -13,7 +13,9 @@ import {
   loadConfig,
   saveConfig,
   validateConfig,
-  DEFAULT_CONFIG
+  DEFAULT_CONFIG,
+  HistoryStore,
+  ensureSqliteSupported
 } from "./index.js";
 
 describe("VERSION", () => {
@@ -247,7 +249,8 @@ describe("Configuration (config.json)", () => {
     expect(cfg).toEqual({
       allowedOrigins: [],
       port: 47821,
-      pollMs: 3000
+      pollMs: 3000,
+      historyRetention: "5m"
     });
   });
 
@@ -300,7 +303,8 @@ describe("Configuration (config.json)", () => {
     const customConfig = {
       allowedOrigins: [`chrome-extension://${"b".repeat(32)}`],
       port: 12345,
-      pollMs: 1500
+      pollMs: 1500,
+      historyRetention: "5m" as const
     };
 
     saveConfig(customConfig, tempDir);
@@ -311,6 +315,262 @@ describe("Configuration (config.json)", () => {
       const stat = fs.statSync(path.join(tempDir, "config.json"));
       expect((stat.mode & 0o777).toString(8)).toBe("600");
     }
+  });
+
+  it("rejects invalid historyRetention configuration values", () => {
+    const invalidRetentions = ["10m", "2h", "always", 300, null, true, {}];
+    for (const val of invalidRetentions) {
+      expect(() =>
+        validateConfig({
+          allowedOrigins: [],
+          port: 47821,
+          pollMs: 3000,
+          historyRetention: val
+        })
+      ).toThrow(/Invalid configuration/);
+    }
+  });
+});
+
+describe("OTP History Store (HistoryStore)", () => {
+  let tempDir: string;
+  const originalHome = process.env.AUTOOTP_HOME;
+
+  beforeEach(() => {
+    const tmpBase = process.env.TMPDIR || process.env.TEMP || "/tmp";
+    tempDir = fs.mkdtempSync(path.join(tmpBase, "autootp-history-test-"));
+    process.env.AUTOOTP_HOME = tempDir;
+  });
+
+  afterEach(() => {
+    if (originalHome !== undefined) {
+      process.env.AUTOOTP_HOME = originalHome;
+    } else {
+      delete process.env.AUTOOTP_HOME;
+    }
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("fails with a clear message if node:sqlite cannot be imported", () => {
+    expect(() =>
+      ensureSqliteSupported(() => {
+        throw new Error("Cannot find module node:sqlite");
+      })
+    ).toThrow("Node 22.13 or newer is required");
+
+    expect(
+      () =>
+        new HistoryStore({
+          homeDir: tempDir,
+          sqliteLoader: () => {
+            throw new Error("Cannot find module node:sqlite");
+          }
+        })
+    ).toThrow("Node 22.13 or newer is required");
+  });
+
+  it("performs add and list round trip (newest first, decrypted)", () => {
+    const store = new HistoryStore(tempDir);
+    store.add({
+      sender: "GitHub",
+      senderDomain: "github.com",
+      alias: "work",
+      code: "GH1234",
+      receivedAt: 1000
+    });
+    store.add({
+      sender: "Google",
+      senderDomain: "google.com",
+      alias: "personal",
+      code: "GO9876",
+      receivedAt: 2000
+    });
+
+    const entries = store.list();
+    expect(entries).toHaveLength(2);
+    // Newest first
+    expect(entries[0].sender).toBe("Google");
+    expect(entries[0].code).toBe("GO9876");
+    expect(entries[0].alias).toBe("personal");
+    expect(entries[0].receivedAt).toBe(2000);
+
+    expect(entries[1].sender).toBe("GitHub");
+    expect(entries[1].code).toBe("GH1234");
+    expect(entries[1].alias).toBe("work");
+    expect(entries[1].receivedAt).toBe(1000);
+
+    store.close();
+  });
+
+  it("purges by each retention value with an injectable clock", () => {
+    // Test "5m" (300,000 ms)
+    const store5m = new HistoryStore({ homeDir: tempDir, retention: "5m" });
+    const now5m = 1_000_000;
+    store5m.add({
+      sender: "Recent",
+      senderDomain: "a.com",
+      alias: "a",
+      code: "1111",
+      receivedAt: now5m - 200_000 // 3.3m ago -> keep
+    });
+    store5m.add({
+      sender: "Old",
+      senderDomain: "b.com",
+      alias: "b",
+      code: "2222",
+      receivedAt: now5m - 350_000 // 5.8m ago -> purge
+    });
+    const purged5m = store5m.purge(now5m);
+    expect(purged5m).toBe(1);
+    const list5m = store5m.list();
+    expect(list5m).toHaveLength(1);
+    expect(list5m[0].sender).toBe("Recent");
+    store5m.clear();
+    store5m.close();
+
+    // Test "30m" (1,800,000 ms)
+    const store30m = new HistoryStore({ homeDir: tempDir, retention: "30m" });
+    const now30m = 5_000_000;
+    store30m.add({
+      sender: "Recent30",
+      senderDomain: "c.com",
+      alias: "c",
+      code: "3333",
+      receivedAt: now30m - 1_500_000 // 25m ago -> keep
+    });
+    store30m.add({
+      sender: "Old30",
+      senderDomain: "d.com",
+      alias: "d",
+      code: "4444",
+      receivedAt: now30m - 2_000_000 // 33m ago -> purge
+    });
+    const purged30m = store30m.purge(now30m);
+    expect(purged30m).toBe(1);
+    const list30m = store30m.list();
+    expect(list30m.map((e) => e.sender)).toEqual(["Recent30"]);
+    store30m.clear();
+    store30m.close();
+
+    // Test "1h" (3,600,000 ms)
+    const store1h = new HistoryStore({ homeDir: tempDir, retention: "1h" });
+    const now1h = 10_000_000;
+    store1h.add({
+      sender: "Recent1h",
+      senderDomain: "e.com",
+      alias: "e",
+      code: "5555",
+      receivedAt: now1h - 3_000_000 // 50m ago -> keep
+    });
+    store1h.add({
+      sender: "Old1h",
+      senderDomain: "f.com",
+      alias: "f",
+      code: "6666",
+      receivedAt: now1h - 4_000_000 // 66m ago -> purge
+    });
+    const purged1h = store1h.purge(now1h);
+    expect(purged1h).toBe(1);
+    const list1h = store1h.list();
+    expect(list1h.map((e) => e.sender)).toEqual(["Recent1h"]);
+    store1h.clear();
+    store1h.close();
+
+    // Test "off" (purge deletes everything)
+    const storeOff = new HistoryStore({ homeDir: tempDir, retention: "off" });
+    // Temporarily insert using a 5m store to test off purge
+    const storeHelper = new HistoryStore({ homeDir: tempDir, retention: "5m" });
+    storeHelper.add({
+      sender: "ToPurge",
+      senderDomain: "g.com",
+      alias: "g",
+      code: "7777",
+      receivedAt: Date.now()
+    });
+    storeHelper.close();
+
+    expect(storeOff.list()).toHaveLength(1);
+    const purgedOff = storeOff.purge();
+    expect(purgedOff).toBe(1);
+    expect(storeOff.list()).toHaveLength(0);
+    storeOff.close();
+  });
+
+  it("'off' stores nothing and purge deletes everything", () => {
+    const store = new HistoryStore({ homeDir: tempDir, retention: "off" });
+    store.add({
+      sender: "GitHub",
+      senderDomain: "github.com",
+      alias: "personal",
+      code: "SECRET",
+      receivedAt: Date.now()
+    });
+
+    expect(store.list()).toHaveLength(0);
+    expect(store.purge()).toBe(0);
+    store.close();
+  });
+
+  it("the encrypted column does not contain the plaintext code (read raw db file bytes)", () => {
+    const store = new HistoryStore(tempDir);
+    const plainCode = "TOPSECRET_OTP_987654";
+    store.add({
+      sender: "BankOfAmerica",
+      senderDomain: "bankofamerica.com",
+      alias: "personal",
+      code: plainCode,
+      receivedAt: Date.now()
+    });
+    store.close();
+
+    const dbPath = path.join(tempDir, "history.db");
+    const rawBytes = fs.readFileSync(dbPath);
+    expect(rawBytes.includes(plainCode)).toBe(false);
+  });
+
+  it("sets db file mode to 600 on non-Windows", () => {
+    const store = new HistoryStore(tempDir);
+    store.close();
+
+    if (process.platform !== "win32") {
+      const dbPath = path.join(tempDir, "history.db");
+      const stat = fs.statSync(dbPath);
+      expect((stat.mode & 0o777).toString(8)).toBe("600");
+    }
+  });
+
+  it("ensures secure_delete is ON", () => {
+    const store = new HistoryStore(tempDir);
+    const db = (store as any).getDb();
+    const row = db.prepare("PRAGMA secure_delete;").get() as { secure_delete: number };
+    expect(row.secure_delete).toBe(1);
+    store.close();
+  });
+
+  it("clear() empties the table and runs vacuum", () => {
+    const store = new HistoryStore(tempDir);
+    store.add({
+      sender: "A",
+      senderDomain: "a.com",
+      alias: "personal",
+      code: "111",
+      receivedAt: Date.now()
+    });
+    store.add({
+      sender: "B",
+      senderDomain: "b.com",
+      alias: "personal",
+      code: "222",
+      receivedAt: Date.now()
+    });
+
+    expect(store.list()).toHaveLength(2);
+    const count = store.clear();
+    expect(count).toBe(2);
+    expect(store.list()).toHaveLength(0);
+    store.close();
   });
 });
 

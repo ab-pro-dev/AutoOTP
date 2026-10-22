@@ -10,6 +10,10 @@ import {
   enableAction,
   disableAction,
   statusAction,
+  configAction,
+  configSetAction,
+  historyAction,
+  clearAction,
   CommandContext
 } from "./commands.js";
 
@@ -84,6 +88,34 @@ export function createProgram(context: CommandContext = {}): Command {
     .description("Display the current service status and connection info")
     .action(async () => {
       await statusAction(context);
+    });
+
+  const configCmd = program
+    .command("config")
+    .description("Display or modify AutoOTP configuration")
+    .action(async () => {
+      await configAction(context);
+    });
+
+  configCmd
+    .command("set <key> <value>")
+    .description("Set a configuration option")
+    .action(async (key: string, value: string) => {
+      await configSetAction(key, value, context);
+    });
+
+  program
+    .command("history")
+    .description("Display recently received OTPs")
+    .action(async () => {
+      await historyAction(context);
+    });
+
+  program
+    .command("clear")
+    .description("Clear all OTP history")
+    .action(async () => {
+      await clearAction(context);
     });
 
   return program;

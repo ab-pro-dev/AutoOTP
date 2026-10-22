@@ -2,14 +2,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { getEventListeners } from "node:events";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { TokenStore, loadConfig, saveConfig } from "@autootp/shared";
+import { TokenStore, loadConfig, saveConfig, HistoryStore } from "@autootp/shared";
 import {
   validateAlias,
   validateExtensionId,
   formatAccountsTable,
   checkCredentialsPermissions,
   revokeToken,
-  formatOtpNotification
+  formatOtpNotification,
+  formatHistoryTable
 } from "./utils.js";
 import {
   removeAction,
@@ -19,7 +20,11 @@ import {
   serviceAction,
   enableAction,
   disableAction,
-  statusAction
+  statusAction,
+  configAction,
+  configSetAction,
+  historyAction,
+  clearAction
 } from "./commands.js";
 import {
   generateSystemdUnit,
@@ -703,6 +708,173 @@ describe("CLI utilities and commands", () => {
       expect(lines[1]).toBe("Accounts: 0");
       expect(lines[2]).toBe("Paired extensions: 0");
       expect(lines[3]).toBe("Port 47821: not listening");
+    });
+  });
+
+  describe("Config Command", () => {
+    it("prints current historyRetention", async () => {
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await configAction({ homeDir: tempDir });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(lines).toContain("historyRetention: 5m");
+      // Must not expose port, pollMs, or other keys
+      expect(lines.some((l) => l.includes("port"))).toBe(false);
+      expect(lines.some((l) => l.includes("pollMs"))).toBe(false);
+    });
+
+    it("sets valid historyRetention value", async () => {
+      await configSetAction("historyRetention", "30m", { homeDir: tempDir });
+      const config = loadConfig(tempDir);
+      expect(config.historyRetention).toBe("30m");
+
+      await configSetAction("historyRetention", "off", { homeDir: tempDir });
+      expect(loadConfig(tempDir).historyRetention).toBe("off");
+
+      await configSetAction("historyRetention", "1h", { homeDir: tempDir });
+      expect(loadConfig(tempDir).historyRetention).toBe("1h");
+    });
+
+    it("rejects unknown keys and exits 1", async () => {
+      let exitCode: number | undefined;
+      const errors: string[] = [];
+      const origErr = console.error;
+      console.error = (msg: string) => errors.push(msg);
+
+      try {
+        await configSetAction("port", "8080", {
+          homeDir: tempDir,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.error = origErr;
+      }
+
+      expect(exitCode).toBe(1);
+      expect(errors[0]).toMatch(/Only "historyRetention" can be configured/);
+    });
+
+    it("rejects invalid historyRetention values and exits 1", async () => {
+      let exitCode: number | undefined;
+      const errors: string[] = [];
+      const origErr = console.error;
+      console.error = (msg: string) => errors.push(msg);
+
+      try {
+        await configSetAction("historyRetention", "2h", {
+          homeDir: tempDir,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.error = origErr;
+      }
+
+      expect(exitCode).toBe(1);
+      expect(errors[0]).toMatch(/Valid values: off, 5m, 30m, 1h/);
+    });
+  });
+
+  describe("History and Clear Commands", () => {
+    it("prints 'No history.' when empty", async () => {
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await historyAction({ homeDir: tempDir });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(lines).toEqual(["No history."]);
+    });
+
+    it("prints formatted history table newest first", async () => {
+      const store = new HistoryStore(tempDir);
+      const now = Date.now();
+      store.add({
+        sender: "GitHub",
+        senderDomain: "github.com",
+        alias: "personal",
+        code: "948210",
+        receivedAt: now - 10000
+      });
+      store.add({
+        sender: "AWS",
+        senderDomain: "amazon.com",
+        alias: "work",
+        code: "554433",
+        receivedAt: now - 1000
+      });
+      store.close();
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await historyAction({ homeDir: tempDir });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(lines.length).toBeGreaterThan(0);
+      const output = lines.join("\n");
+      expect(output).toContain("AGE");
+      expect(output).toContain("SENDER");
+      expect(output).toContain("ALIAS");
+      expect(output).toContain("CODE");
+      expect(output).toContain("AWS");
+      expect(output).toContain("GitHub");
+      expect(output).toContain("554433");
+      expect(output).toContain("948210");
+    });
+
+    it("clears all history and reports row count", async () => {
+      const store = new HistoryStore(tempDir);
+      store.add({
+        sender: "GitHub",
+        senderDomain: "github.com",
+        alias: "personal",
+        code: "948210",
+        receivedAt: Date.now()
+      });
+      store.add({
+        sender: "Google",
+        senderDomain: "google.com",
+        alias: "personal",
+        code: "123456",
+        receivedAt: Date.now()
+      });
+      store.close();
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await clearAction({ homeDir: tempDir });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toMatch(/Cleared 2 rows from history/);
+
+      // Verify history is empty
+      const storeAfter = new HistoryStore(tempDir);
+      expect(storeAfter.list()).toHaveLength(0);
+      storeAfter.close();
     });
   });
 });

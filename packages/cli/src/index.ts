@@ -1,5 +1,14 @@
 #!/usr/bin/env node
+import { ensureSqliteSupported } from "@autootp/shared";
 import { createProgram } from "./cli.js";
+
+try {
+  ensureSqliteSupported();
+} catch (err: unknown) {
+  const message = err instanceof Error ? err.message : String(err);
+  console.error(message);
+  process.exit(1);
+}
 
 const program = createProgram();
 
