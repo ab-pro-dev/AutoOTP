@@ -218,7 +218,13 @@ describe("CLI utilities and commands", () => {
             { status: 200, headers: { "Content-Type": "application/json" } }
           );
         }
-        if (urlStr.includes("/messages?q=")) {
+        if (urlStr.includes("/profile")) {
+          return new Response(JSON.stringify({ historyId: "100" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (urlStr.includes("/messages")) {
           watched = true;
           controller.abort();
           return new Response(JSON.stringify({ messages: [] }), {
@@ -269,7 +275,19 @@ describe("CLI utilities and commands", () => {
             { status: 200, headers: { "Content-Type": "application/json" } }
           );
         }
-        if (urlStr.includes("/messages?q=")) {
+        if (urlStr.includes("/profile")) {
+          return new Response(JSON.stringify({ historyId: "100" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (urlStr.includes("/messages")) {
+          return new Response(JSON.stringify({ messages: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (urlStr.includes("/history")) {
           pollCount++;
           const currentListeners = getEventListeners(controller.signal, "abort").length;
           if (currentListeners > maxListenersSeen) {
@@ -280,7 +298,7 @@ describe("CLI utilities and commands", () => {
           if (pollCount >= 15) {
             controller.abort();
           }
-          return new Response(JSON.stringify({ messages: [] }), {
+          return new Response(JSON.stringify({ history: [], historyId: "100" }), {
             status: 200,
             headers: { "Content-Type": "application/json" }
           });

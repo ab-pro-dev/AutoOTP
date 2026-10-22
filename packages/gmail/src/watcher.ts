@@ -158,6 +158,8 @@ export function extractBodyFromPayload(payload?: GmailMessagePart): string {
       plain = Buffer.from(part.body.data, "base64url").toString("utf8");
     } else if (part.mimeType === "text/html" && part.body?.data) {
       html = Buffer.from(part.body.data, "base64url").toString("utf8");
+    } else if (!part.mimeType && part.body?.data) {
+      plain = Buffer.from(part.body.data, "base64url").toString("utf8");
     }
 
     if (part.parts && part.parts.length > 0) {
@@ -253,7 +255,7 @@ async function fetchWithTimeout(
 
 
 /**
- * Polls Gmail for incoming OTP emails for a given account.
+ * Polls Gmail for incoming OTP emails for a given account using Gmail history API.
  */
 export async function watchAccount(options: WatchAccountOptions): Promise<void> {
   const {
@@ -303,68 +305,222 @@ export async function watchAccount(options: WatchAccountOptions): Promise<void> 
   }
 
   let backoffMs = initialBackoffMs;
-  // Start the first window at now minus 60s (epoch seconds of lastPoll - 30s = now - 60s)
-  let lastSuccessfulPollEpoch = Math.floor(Date.now() / 1000) - 30;
+  let startHistoryId: string | null = null;
+
+  async function processMessage(
+    msgId: string,
+    token: string,
+    maxAgeMs?: number
+  ): Promise<boolean> {
+    const msgRes = await fetchWithTimeout(
+      `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgId}?format=full`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` }
+      },
+      fetchImpl,
+      10000,
+      signal
+    );
+
+    if (msgRes.status === 401) {
+      cachedToken = null;
+      return false;
+    }
+
+    if (msgRes.status === 429 || (msgRes.status >= 500 && msgRes.status < 600)) {
+      const err = new Error(`Gmail API error: HTTP ${msgRes.status}`);
+      try {
+        await onError?.(err);
+      } catch {}
+      await sleep(backoffMs, signal);
+      backoffMs = Math.min(backoffMs * 2, maxBackoffMs);
+      return false;
+    }
+
+    if (!msgRes.ok) {
+      markSeen(msgId);
+      return true;
+    }
+
+    markSeen(msgId);
+
+    const msgData = (await msgRes.json()) as GmailMessage;
+    const receivedAt = msgData.internalDate ? Number(msgData.internalDate) : Date.now();
+
+    if (maxAgeMs !== undefined) {
+      if (Date.now() - receivedAt > maxAgeMs) {
+        return true;
+      }
+    }
+
+    const headers = msgData.payload?.headers ?? [];
+    let subject = "";
+    let from = "";
+    for (const h of headers) {
+      const name = h.name.toLowerCase();
+      if (name === "subject") subject = h.value;
+      if (name === "from") from = h.value;
+    }
+
+    const sender = parseSender(from);
+    const senderDomain = parseSenderDomain(from);
+    const body = extractBodyFromPayload(msgData.payload);
+
+    const otp = extractOtp({ subject, body });
+    if (otp) {
+      if (process.env.AUTOOTP_DEBUG === "timing") {
+        const detected = Date.now();
+        const latency = Math.max(0, detected - receivedAt);
+        console.error(`latency: ${latency} ms (received to detected)`);
+      }
+
+      try {
+        await onOtp({
+          id: msgId,
+          messageId: msgId,
+          accountId,
+          sender,
+          senderDomain,
+          code: otp.code,
+          raw: otp.raw,
+          confidence: otp.confidence,
+          receivedAt
+        });
+      } catch (callbackErr) {
+        try {
+          await onError?.(
+            callbackErr instanceof Error ? callbackErr : new Error(String(callbackErr))
+          );
+        } catch {}
+      }
+    }
+
+    return true;
+  }
+
+  async function fetchHistoryId(token: string): Promise<string | null> {
+    const profileRes = await fetchWithTimeout(
+      "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` }
+      },
+      fetchImpl,
+      10000,
+      signal
+    );
+
+    if (profileRes.status === 401) {
+      cachedToken = null;
+      return null;
+    }
+
+    if (profileRes.status === 429 || (profileRes.status >= 500 && profileRes.status < 600)) {
+      const err = new Error(`Gmail API error: HTTP ${profileRes.status}`);
+      try {
+        await onError?.(err);
+      } catch {}
+      await sleep(backoffMs, signal);
+      backoffMs = Math.min(backoffMs * 2, maxBackoffMs);
+      return null;
+    }
+
+    if (!profileRes.ok) {
+      const err = new Error(`Gmail API getProfile failed with HTTP ${profileRes.status}`);
+      try {
+        await onError?.(err);
+      } catch {}
+      return null;
+    }
+
+    const profileData = (await profileRes.json()) as { historyId?: string | number };
+    return profileData.historyId ? String(profileData.historyId) : null;
+  }
+
+  async function runRecoveryList(token: string): Promise<boolean> {
+    const listRes = await fetchWithTimeout(
+      "https://gmail.googleapis.com/gmail/v1/users/me/messages?labelIds=INBOX&maxResults=10",
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` }
+      },
+      fetchImpl,
+      10000,
+      signal
+    );
+
+    if (listRes.status === 401) {
+      cachedToken = null;
+      return false;
+    }
+
+    if (listRes.status === 429 || (listRes.status >= 500 && listRes.status < 600)) {
+      const err = new Error(`Gmail API error: HTTP ${listRes.status}`);
+      try {
+        await onError?.(err);
+      } catch {}
+      await sleep(backoffMs, signal);
+      backoffMs = Math.min(backoffMs * 2, maxBackoffMs);
+      return false;
+    }
+
+    if (!listRes.ok) {
+      const err = new Error(`Gmail API messages list failed with HTTP ${listRes.status}`);
+      try {
+        await onError?.(err);
+      } catch {}
+      return false;
+    }
+
+    const listData = (await listRes.json()) as { messages?: Array<{ id: string }> };
+    const messages = listData.messages ?? [];
+
+    for (const msg of messages) {
+      if (signal?.aborted) break;
+      if (!msg.id || seenSet.has(msg.id)) continue;
+      await processMessage(msg.id, token, 60000);
+    }
+
+    return true;
+  }
 
   while (!signal?.aborted) {
     try {
       const token = await getAccessToken();
       if (signal?.aborted) break;
 
-      const afterSec = lastSuccessfulPollEpoch - 30;
-      const q = `in:inbox after:${afterSec}`;
-      const listUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent(
-        q
-      )}&maxResults=10`;
-
-      const listRes = await fetchWithTimeout(
-        listUrl,
-        {
-          method: "GET",
-          headers: { Authorization: `Bearer ${token}` }
-        },
-        fetchImpl,
-        10000,
-        signal
-      );
-
-      if (listRes.status === 401) {
-        cachedToken = null;
-        continue;
-      }
-
-      if (listRes.status === 429 || (listRes.status >= 500 && listRes.status < 600)) {
-        const err = new Error(`Gmail API error: HTTP ${listRes.status}`);
-        try {
-          await onError?.(err);
-        } catch {}
-        await sleep(backoffMs, signal);
-        backoffMs = Math.min(backoffMs * 2, maxBackoffMs);
-        continue;
-      }
-
-      if (!listRes.ok) {
-        const err = new Error(`Gmail API messages list failed with HTTP ${listRes.status}`);
-        try {
-          await onError?.(err);
-        } catch {}
+      // Start / initial setup
+      if (!startHistoryId) {
+        const initialHistoryId = await fetchHistoryId(token);
+        if (!initialHistoryId) {
+          await sleep(pollMs, signal);
+          continue;
+        }
+        startHistoryId = initialHistoryId;
+        await runRecoveryList(token);
+        backoffMs = initialBackoffMs;
         await sleep(pollMs, signal);
         continue;
       }
 
-      // Success: reset backoff
-      backoffMs = initialBackoffMs;
-      lastSuccessfulPollEpoch = Math.floor(Date.now() / 1000);
+      // History polling
+      let pageToken: string | undefined = undefined;
+      let nextStartHistoryId: string | null = null;
+      const addedMessageIds: string[] = [];
+      let had404 = false;
+      let hadAuthOrRateError = false;
 
-      const listData = (await listRes.json()) as { messages?: Array<{ id: string }> };
-      const messages = listData.messages ?? [];
-
-      for (const msg of messages) {
+      do {
         if (signal?.aborted) break;
-        if (!msg.id || seenSet.has(msg.id)) continue;
 
-        const msgRes = await fetchWithTimeout(
-          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`,
+        let historyUrl = `https://gmail.googleapis.com/gmail/v1/users/me/history?startHistoryId=${startHistoryId}&historyTypes=messageAdded&labelId=INBOX`;
+        if (pageToken) {
+          historyUrl += `&pageToken=${encodeURIComponent(pageToken)}`;
+        }
+
+        const historyRes = await fetchWithTimeout(
+          historyUrl,
           {
             method: "GET",
             headers: { Authorization: `Bearer ${token}` }
@@ -374,66 +530,97 @@ export async function watchAccount(options: WatchAccountOptions): Promise<void> 
           signal
         );
 
-        if (msgRes.status === 401) {
+        if (historyRes.status === 401) {
           cachedToken = null;
+          hadAuthOrRateError = true;
           break;
         }
 
-        if (msgRes.status === 429 || (msgRes.status >= 500 && msgRes.status < 600)) {
-          const err = new Error(`Gmail API error: HTTP ${msgRes.status}`);
+        if (historyRes.status === 404) {
+          had404 = true;
+          break;
+        }
+
+        if (historyRes.status === 429 || (historyRes.status >= 500 && historyRes.status < 600)) {
+          const err = new Error(`Gmail API error: HTTP ${historyRes.status}`);
           try {
             await onError?.(err);
           } catch {}
           await sleep(backoffMs, signal);
           backoffMs = Math.min(backoffMs * 2, maxBackoffMs);
+          hadAuthOrRateError = true;
           break;
         }
 
-        if (!msgRes.ok) {
-          markSeen(msg.id);
-          continue;
-        }
-
-        markSeen(msg.id);
-
-        const msgData = (await msgRes.json()) as GmailMessage;
-        const headers = msgData.payload?.headers ?? [];
-
-        let subject = "";
-        let from = "";
-        for (const h of headers) {
-          const name = h.name.toLowerCase();
-          if (name === "subject") subject = h.value;
-          if (name === "from") from = h.value;
-        }
-
-        const sender = parseSender(from);
-        const senderDomain = parseSenderDomain(from);
-        const body = extractBodyFromPayload(msgData.payload);
-        const receivedAt = msgData.internalDate ? Number(msgData.internalDate) : Date.now();
-
-        const otp = extractOtp({ subject, body });
-        if (otp) {
+        if (!historyRes.ok) {
+          const err = new Error(`Gmail API history failed with HTTP ${historyRes.status}`);
           try {
-            await onOtp({
-              id: msg.id,
-              messageId: msg.id,
-              accountId,
-              sender,
-              senderDomain,
-              code: otp.code,
-              raw: otp.raw,
-              confidence: otp.confidence,
-              receivedAt
-            });
-          } catch (callbackErr) {
-            try {
-              await onError?.(
-                callbackErr instanceof Error ? callbackErr : new Error(String(callbackErr))
-              );
-            } catch {}
+            await onError?.(err);
+          } catch {}
+          hadAuthOrRateError = true;
+          break;
+        }
+
+        const historyData = (await historyRes.json()) as {
+          history?: Array<{
+            messagesAdded?: Array<{ message?: { id?: string }; id?: string }>;
+            messages?: Array<{ id?: string }>;
+          }>;
+          historyId?: string | number;
+          nextPageToken?: string;
+        };
+
+        if (historyData.historyId) {
+          nextStartHistoryId = String(historyData.historyId);
+        }
+
+        const historyList = historyData.history ?? [];
+        for (const record of historyList) {
+          if (record.messagesAdded) {
+            for (const entry of record.messagesAdded) {
+              const id = entry.message?.id ?? entry.id;
+              if (id && !seenSet.has(id) && !addedMessageIds.includes(id)) {
+                addedMessageIds.push(id);
+              }
+            }
+          } else if (record.messages) {
+            for (const msg of record.messages) {
+              if (msg.id && !seenSet.has(msg.id) && !addedMessageIds.includes(msg.id)) {
+                addedMessageIds.push(msg.id);
+              }
+            }
           }
         }
+
+        pageToken = historyData.nextPageToken;
+      } while (pageToken && !signal?.aborted);
+
+      if (had404) {
+        // Expired history: re-run getProfile and 60-second recovery list
+        const recoveredHistoryId = await fetchHistoryId(token);
+        if (recoveredHistoryId) {
+          startHistoryId = recoveredHistoryId;
+        }
+        await runRecoveryList(token);
+        backoffMs = initialBackoffMs;
+        await sleep(pollMs, signal);
+        continue;
+      }
+
+      if (hadAuthOrRateError) {
+        continue;
+      }
+
+      // Store top-level historyId as new startHistoryId
+      if (nextStartHistoryId) {
+        startHistoryId = nextStartHistoryId;
+      }
+      backoffMs = initialBackoffMs;
+
+      for (const msgId of addedMessageIds) {
+        if (signal?.aborted) break;
+        if (seenSet.has(msgId)) continue;
+        await processMessage(msgId, token);
       }
 
       await sleep(pollMs, signal);

@@ -154,15 +154,34 @@ describe("AutoOTP Service (packages/service)", () => {
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
-      if (urlStr.includes("/messages?q=")) {
+      if (urlStr.includes("/profile")) {
+        return new Response(JSON.stringify({ historyId: "100" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/messages?labelIds=")) {
+        return new Response(JSON.stringify({ messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/history")) {
         if (!wsReady) {
-          return new Response(JSON.stringify({ messages: [] }), {
+          return new Response(JSON.stringify({ history: [], historyId: "100" }), {
             status: 200,
             headers: { "Content-Type": "application/json" }
           });
         }
         return new Response(
-          JSON.stringify({ messages: [{ id: "msg-service-42" }] }),
+          JSON.stringify({
+            history: [
+              {
+                messagesAdded: [{ message: { id: "msg-service-42" } }]
+              }
+            ],
+            historyId: "101"
+          }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }

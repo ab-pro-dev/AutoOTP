@@ -396,13 +396,28 @@ describe("Gmail Watcher (packages/gmail)", () => {
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
-      if (urlStr.includes("/messages?q=")) {
+      if (urlStr.includes("/profile")) {
+        return new Response(JSON.stringify({ historyId: "100" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/messages?labelIds=")) {
+        return new Response(JSON.stringify({ messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/history")) {
         pollCount++;
         if (pollCount >= 3) {
           controller.abort();
         }
         return new Response(
-          JSON.stringify({ messages: [{ id: "msg-duplicate-1" }] }),
+          JSON.stringify({
+            history: [{ messagesAdded: [{ message: { id: "msg-duplicate-1" } }] }],
+            historyId: "101"
+          }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
@@ -463,9 +478,24 @@ describe("Gmail Watcher (packages/gmail)", () => {
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
-      if (urlStr.includes("/messages?q=")) {
+      if (urlStr.includes("/profile")) {
+        return new Response(JSON.stringify({ historyId: "100" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/messages?labelIds=")) {
+        return new Response(JSON.stringify({ messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/history")) {
         return new Response(
-          JSON.stringify({ messages: [{ id: "msg-html-only" }] }),
+          JSON.stringify({
+            history: [{ messagesAdded: [{ message: { id: "msg-html-only" } }] }],
+            historyId: "101"
+          }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
@@ -535,7 +565,19 @@ describe("Gmail Watcher (packages/gmail)", () => {
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
-      if (urlStr.includes("/messages?q=")) {
+      if (urlStr.includes("/profile")) {
+        return new Response(JSON.stringify({ historyId: "100" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/messages?labelIds=")) {
+        return new Response(JSON.stringify({ messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/history")) {
         attempt++;
         if (attempt === 1) {
           return new Response("Rate limit exceeded", { status: 429 });
@@ -544,7 +586,7 @@ describe("Gmail Watcher (packages/gmail)", () => {
           return new Response("Server error", { status: 503 });
         }
         controller.abort();
-        return new Response(JSON.stringify({ messages: [] }), {
+        return new Response(JSON.stringify({ history: [], historyId: "100" }), {
           status: 200,
           headers: { "Content-Type": "application/json" }
         });
@@ -625,10 +667,22 @@ describe("Gmail Watcher (packages/gmail)", () => {
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
-      if (urlStr.includes("/messages?q=")) {
+      if (urlStr.includes("/profile")) {
+        return new Response(JSON.stringify({ historyId: "100" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/messages?labelIds=")) {
+        return new Response(JSON.stringify({ messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/history")) {
         pollInvoked = true;
         controller.abort();
-        return new Response(JSON.stringify({ messages: [] }), {
+        return new Response(JSON.stringify({ history: [], historyId: "100" }), {
           status: 200,
           headers: { "Content-Type": "application/json" }
         });
@@ -667,9 +721,24 @@ describe("Gmail Watcher (packages/gmail)", () => {
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
-      if (urlStr.includes("/messages?q=")) {
+      if (urlStr.includes("/profile")) {
+        return new Response(JSON.stringify({ historyId: "100" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/messages?labelIds=")) {
+        return new Response(JSON.stringify({ messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/history")) {
         return new Response(
-          JSON.stringify({ messages: [{ id: "msg-newsletter-1" }] }),
+          JSON.stringify({
+            history: [{ messagesAdded: [{ message: { id: "msg-newsletter-1" } }] }],
+            historyId: "101"
+          }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
@@ -733,7 +802,19 @@ describe("Gmail Watcher (packages/gmail)", () => {
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
-      if (urlStr.includes("/messages?q=")) {
+      if (urlStr.includes("/profile")) {
+        return new Response(JSON.stringify({ historyId: "100" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/messages?labelIds=")) {
+        return new Response(JSON.stringify({ messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/history")) {
         pollCount++;
         const currentListeners = getEventListeners(signal, "abort").length;
         if (currentListeners > maxListenersSeen) {
@@ -746,7 +827,7 @@ describe("Gmail Watcher (packages/gmail)", () => {
           controller.abort();
         }
 
-        return new Response(JSON.stringify({ messages: [] }), {
+        return new Response(JSON.stringify({ history: [], historyId: "100" }), {
           status: 200,
           headers: { "Content-Type": "application/json" }
         });
@@ -794,7 +875,19 @@ describe("Gmail Watcher (packages/gmail)", () => {
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
-      if (urlStr.includes("/messages?q=")) {
+      if (urlStr.includes("/profile")) {
+        return new Response(JSON.stringify({ historyId: "100" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/messages?labelIds=")) {
+        return new Response(JSON.stringify({ messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/history")) {
         totalPolls++;
         const count = getEventListeners(signal, "abort").length;
         if (count > maxListeners) maxListeners = count;
@@ -803,7 +896,7 @@ describe("Gmail Watcher (packages/gmail)", () => {
         if (totalPolls >= 20) {
           controller.abort();
         }
-        return new Response(JSON.stringify({ messages: [] }), {
+        return new Response(JSON.stringify({ history: [], historyId: "100" }), {
           status: 200,
           headers: { "Content-Type": "application/json" }
         });
@@ -827,6 +920,440 @@ describe("Gmail Watcher (packages/gmail)", () => {
     expect(maxListeners).toBeLessThanOrEqual(N + 2);
     expect(getEventListeners(signal, "abort").length).toBeLessThanOrEqual(2);
   });
+
+  describe("Fast and Measurable History Polling", () => {
+    it("reports a new message once and advances startHistoryId between polls", async () => {
+      const store = new TokenStore(tempDir);
+      await store.set("acc-hist", {
+        refreshToken: "token-hist",
+        email: "hist@example.com",
+        addedAt: Date.now()
+      });
+
+      const controller = new AbortController();
+      const requestedUrls: string[] = [];
+      const otps: OtpNotification[] = [];
+      let historyPollCount = 0;
+
+      const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+        const urlStr = input.toString();
+        requestedUrls.push(urlStr);
+
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          return new Response(
+            JSON.stringify({ access_token: "mock-token", expires_in: 3600 }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (urlStr.includes("/profile")) {
+          return new Response(JSON.stringify({ historyId: "100" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (urlStr.includes("/messages?labelIds=")) {
+          return new Response(JSON.stringify({ messages: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (urlStr.includes("/history")) {
+          historyPollCount++;
+          if (historyPollCount === 1) {
+            expect(urlStr).toContain("startHistoryId=100");
+            return new Response(
+              JSON.stringify({
+                history: [
+                  {
+                    messagesAdded: [{ message: { id: "msg-hist-1" } }]
+                  }
+                ],
+                historyId: "150"
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } }
+            );
+          }
+          if (historyPollCount === 2) {
+            // startHistoryId must have advanced to 150
+            expect(urlStr).toContain("startHistoryId=150");
+            controller.abort();
+            return new Response(
+              JSON.stringify({
+                history: [],
+                historyId: "150"
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } }
+            );
+          }
+        }
+        if (urlStr.includes("/messages/msg-hist-1?format=full")) {
+          return new Response(
+            JSON.stringify({
+              id: "msg-hist-1",
+              internalDate: String(Date.now()),
+              payload: {
+                headers: [
+                  { name: "Subject", value: "Code" },
+                  { name: "From", value: "Service <service@site.com>" }
+                ],
+                mimeType: "text/plain",
+                body: {
+                  data: Buffer.from("Your code is 839201.").toString("base64url")
+                }
+              }
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response("Not found", { status: 404 });
+      };
+
+      await watchAccount({
+        accountId: "acc-hist",
+        pollMs: 1,
+        signal: controller.signal,
+        fetchImpl: mockFetch as typeof fetch,
+        homeDir: tempDir,
+        onOtp: (otp) => {
+          otps.push(otp);
+        }
+      });
+
+      expect(otps).toHaveLength(1);
+      expect(otps[0].code).toBe("839201");
+      expect(historyPollCount).toBe(2);
+
+      // Verify no URL ever contains "q=" or "after:"
+      for (const url of requestedUrls) {
+        expect(url).not.toContain("q=");
+        expect(url).not.toContain("after:");
+      }
+    });
+
+    it("follows nextPageToken across history pages", async () => {
+      const store = new TokenStore(tempDir);
+      await store.set("acc-pages", {
+        refreshToken: "token-pages",
+        email: "pages@example.com",
+        addedAt: Date.now()
+      });
+
+      const controller = new AbortController();
+      const otps: OtpNotification[] = [];
+      const historyUrls: string[] = [];
+
+      const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+        const urlStr = input.toString();
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          return new Response(
+            JSON.stringify({ access_token: "mock-token", expires_in: 3600 }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (urlStr.includes("/profile")) {
+          return new Response(JSON.stringify({ historyId: "200" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (urlStr.includes("/messages?labelIds=")) {
+          return new Response(JSON.stringify({ messages: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (urlStr.includes("/history")) {
+          historyUrls.push(urlStr);
+          if (!urlStr.includes("pageToken=")) {
+            return new Response(
+              JSON.stringify({
+                history: [{ messagesAdded: [{ message: { id: "msg-p1" } }] }],
+                nextPageToken: "page-2-token",
+                historyId: "205"
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } }
+            );
+          }
+          if (urlStr.includes("pageToken=page-2-token")) {
+            return new Response(
+              JSON.stringify({
+                history: [{ messagesAdded: [{ message: { id: "msg-p2" } }] }],
+                historyId: "210"
+              }),
+              { status: 200, headers: { "Content-Type": "application/json" } }
+            );
+          }
+          return new Response(JSON.stringify({ history: [], historyId: "210" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (urlStr.includes("/messages/msg-p1?format=full")) {
+          return new Response(
+            JSON.stringify({
+              id: "msg-p1",
+              internalDate: String(Date.now()),
+              payload: {
+                headers: [
+                  { name: "Subject", value: "Code" },
+                  { name: "From", value: "A <a@a.com>" }
+                ],
+                mimeType: "text/plain",
+                body: { data: Buffer.from("Your code is 111222.").toString("base64url") }
+              }
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (urlStr.includes("/messages/msg-p2?format=full")) {
+          return new Response(
+            JSON.stringify({
+              id: "msg-p2",
+              internalDate: String(Date.now()),
+              payload: {
+                headers: [
+                  { name: "Subject", value: "Code" },
+                  { name: "From", value: "B <b@b.com>" }
+                ],
+                mimeType: "text/plain",
+                body: { data: Buffer.from("Your code is 333444.").toString("base64url") }
+              }
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response("Not found", { status: 404 });
+      };
+
+      await watchAccount({
+        accountId: "acc-pages",
+        pollMs: 1,
+        signal: controller.signal,
+        fetchImpl: mockFetch as typeof fetch,
+        homeDir: tempDir,
+        onOtp: (otp) => {
+          otps.push(otp);
+          if (otps.length >= 2) {
+            controller.abort();
+          }
+        }
+      });
+
+      expect(otps).toHaveLength(2);
+      expect(otps.map((o) => o.code)).toEqual(["111222", "333444"]);
+      expect(historyUrls.some((u) => u.includes("pageToken=page-2-token"))).toBe(true);
+    });
+
+    it("triggers recovery path on 404 and continues polling", async () => {
+      const store = new TokenStore(tempDir);
+      await store.set("acc-404", {
+        refreshToken: "token-404",
+        email: "recovered@example.com",
+        addedAt: Date.now()
+      });
+
+      const controller = new AbortController();
+      let profileCallCount = 0;
+      let recoveryListCount = 0;
+      const otps: OtpNotification[] = [];
+
+      const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+        const urlStr = input.toString();
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          return new Response(
+            JSON.stringify({ access_token: "mock-token", expires_in: 3600 }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (urlStr.includes("/profile")) {
+          profileCallCount++;
+          const hid = profileCallCount === 1 ? "100" : "500";
+          return new Response(JSON.stringify({ historyId: hid }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (urlStr.includes("/messages?labelIds=")) {
+          recoveryListCount++;
+          if (recoveryListCount === 1) {
+            // Initial startup
+            return new Response(JSON.stringify({ messages: [] }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" }
+            });
+          }
+          // Recovery list after 404: find recent message
+          return new Response(
+            JSON.stringify({ messages: [{ id: "msg-recovered" }] }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (urlStr.includes("/history")) {
+          if (urlStr.includes("startHistoryId=100")) {
+            // First poll: simulate history expired
+            return new Response("History expired", { status: 404 });
+          }
+          return new Response(
+            JSON.stringify({ history: [], historyId: "500" }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (urlStr.includes("/messages/msg-recovered?format=full")) {
+          return new Response(
+            JSON.stringify({
+              id: "msg-recovered",
+              internalDate: String(Date.now() - 5000), // 5 seconds ago -> within 60s
+              payload: {
+                headers: [
+                  { name: "Subject", value: "Verification code" },
+                  { name: "From", value: "Recovery <rec@example.com>" }
+                ],
+                mimeType: "text/plain",
+                body: { data: Buffer.from("Your OTP is 776655").toString("base64url") }
+              }
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response("Not found", { status: 404 });
+      };
+
+      await watchAccount({
+        accountId: "acc-404",
+        pollMs: 1,
+        signal: controller.signal,
+        fetchImpl: mockFetch as typeof fetch,
+        homeDir: tempDir,
+        onOtp: (otp) => {
+          otps.push(otp);
+          controller.abort();
+        }
+      });
+
+      expect(profileCallCount).toBeGreaterThanOrEqual(2);
+      expect(recoveryListCount).toBeGreaterThanOrEqual(2);
+      expect(otps).toHaveLength(1);
+      expect(otps[0].code).toBe("776655");
+    });
+
+    it("prints latency line only when AUTOOTP_DEBUG=timing and never includes digits of the code", async () => {
+      const store = new TokenStore(tempDir);
+      await store.set("acc-timing", {
+        refreshToken: "token-timing",
+        email: "timing@example.com",
+        addedAt: Date.now()
+      });
+
+      const otpCode = "948271";
+      let pollIndex = 0;
+
+      const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+        const urlStr = input.toString();
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          return new Response(
+            JSON.stringify({ access_token: "mock-token", expires_in: 3600 }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (urlStr.includes("/profile")) {
+          return new Response(JSON.stringify({ historyId: "100" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (urlStr.includes("/messages?labelIds=")) {
+          return new Response(JSON.stringify({ messages: [] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        if (urlStr.includes("/history")) {
+          pollIndex++;
+          return new Response(
+            JSON.stringify({
+              history: [{ messagesAdded: [{ message: { id: `msg-timed-${pollIndex}` } }] }],
+              historyId: "105"
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (urlStr.includes("/messages/msg-timed-")) {
+          return new Response(
+            JSON.stringify({
+              id: "msg-timed",
+              internalDate: String(Date.now() - 320),
+              payload: {
+                headers: [
+                  { name: "Subject", value: "Code" },
+                  { name: "From", value: "Sec <sec@test.com>" }
+                ],
+                mimeType: "text/plain",
+                body: { data: Buffer.from(`Your code is ${otpCode}.`).toString("base64url") }
+              }
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        return new Response("Not found", { status: 404 });
+      };
+
+      // 1. Without AUTOOTP_DEBUG
+      delete process.env.AUTOOTP_DEBUG;
+      const controller1 = new AbortController();
+      const stderrLinesNoDebug: string[] = [];
+      const origErr = console.error;
+      console.error = (msg: string) => stderrLinesNoDebug.push(msg);
+
+      try {
+        await watchAccount({
+          accountId: "acc-timing",
+          pollMs: 1,
+          signal: controller1.signal,
+          fetchImpl: mockFetch as typeof fetch,
+          homeDir: tempDir,
+          onOtp: () => {
+            controller1.abort();
+          }
+        });
+      } finally {
+        console.error = origErr;
+      }
+
+      expect(stderrLinesNoDebug.some((l) => l.includes("latency:"))).toBe(false);
+
+      // 2. With AUTOOTP_DEBUG=timing
+      process.env.AUTOOTP_DEBUG = "timing";
+      const controller2 = new AbortController();
+      const stderrLinesTiming: string[] = [];
+      console.error = (msg: string) => stderrLinesTiming.push(msg);
+
+      try {
+        await watchAccount({
+          accountId: "acc-timing",
+          pollMs: 1,
+          signal: controller2.signal,
+          fetchImpl: mockFetch as typeof fetch,
+          homeDir: tempDir,
+          onOtp: () => {
+            controller2.abort();
+          }
+        });
+      } finally {
+        delete process.env.AUTOOTP_DEBUG;
+        console.error = origErr;
+      }
+
+      const latencyLine = stderrLinesTiming.find((l) => l.startsWith("latency:"));
+      expect(latencyLine).toBeTruthy();
+      expect(latencyLine).toMatch(/^latency: \d+ ms \(received to detected\)$/);
+      // Prove no digits of the code appear in the latency line
+      expect(latencyLine).not.toContain(otpCode);
+      for (let i = 0; i <= otpCode.length - 2; i++) {
+        expect(latencyLine).not.toContain(otpCode.slice(i, i + 2));
+      }
+    });
+  });
+
 });
 
 
