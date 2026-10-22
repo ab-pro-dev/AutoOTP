@@ -7,6 +7,9 @@ import {
   watchAction,
   pairAction,
   serviceAction,
+  enableAction,
+  disableAction,
+  statusAction,
   CommandContext
 } from "./commands.js";
 
@@ -60,6 +63,27 @@ export function createProgram(context: CommandContext = {}): Command {
     .action(async (opts: { watch?: boolean; noWatch?: boolean }) => {
       const noWatch = opts.watch === false || opts.noWatch === true;
       await serviceAction({ ...context, noWatch });
+    });
+
+  program
+    .command("enable")
+    .description("Configure and enable AutoOTP to start automatically at login")
+    .action(async () => {
+      await enableAction(context);
+    });
+
+  program
+    .command("disable")
+    .description("Disable and remove AutoOTP auto-start service")
+    .action(async () => {
+      await disableAction(context);
+    });
+
+  program
+    .command("status")
+    .description("Display the current service status and connection info")
+    .action(async () => {
+      await statusAction(context);
     });
 
   return program;

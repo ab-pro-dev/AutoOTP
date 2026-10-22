@@ -11,7 +11,21 @@ import {
   revokeToken,
   formatOtpNotification
 } from "./utils.js";
-import { removeAction, loginAction, watchAction, pairAction } from "./commands.js";
+import {
+  removeAction,
+  loginAction,
+  watchAction,
+  pairAction,
+  serviceAction,
+  enableAction,
+  disableAction,
+  statusAction
+} from "./commands.js";
+import {
+  generateSystemdUnit,
+  generateLaunchdPlist,
+  ExecFunction
+} from "./autostart.js";
 import { createProgram } from "./cli.js";
 
 describe("CLI utilities and commands", () => {
@@ -161,7 +175,8 @@ describe("CLI utilities and commands", () => {
         accountId: "work",
         sender: "GitHub",
         code: "948271",
-        receivedAt: testDate.getTime()
+        receivedAt: testDate.getTime(),
+        maskCode: false
       });
       expect(formatted).toBe("[12:30:45] GitHub (work) -> 948271");
     });
@@ -363,6 +378,331 @@ describe("CLI utilities and commands", () => {
       controller.abort();
 
       await expect(runPromise).resolves.toBeDefined();
+    });
+  });
+
+  describe("Non-TTY Masking and Background-Safe Output", () => {
+    it("masks code with asterisks in non-TTY output and proves no digits appear", () => {
+      const otp = {
+        accountId: "personal",
+        sender: "GitHub",
+        code: "892147",
+        receivedAt: 1700000000000
+      };
+
+      // Explicitly test non-TTY / masked mode
+      const maskedLine = formatOtpNotification({ ...otp, maskCode: true });
+      expect(maskedLine).toContain("GitHub (personal) -> ******");
+      const arrowParts = maskedLine.split("->");
+      const codePart = arrowParts[1].trim();
+      expect(codePart).toBe("******");
+      expect(codePart.length).toBe(otp.code.length);
+      // Prove no digits of the code appear in non-TTY output
+      expect(/\d/.test(codePart)).toBe(false);
+
+      // Verify TTY output retains the full unmasked code
+      const unmaskedLine = formatOtpNotification({ ...otp, maskCode: false });
+      expect(unmaskedLine).toContain("GitHub (personal) -> 892147");
+      expect(unmaskedLine.split("->")[1].trim()).toBe("892147");
+    });
+
+    it("respects process.stdout.isTTY boolean", () => {
+      const origIsTTY = process.stdout.isTTY;
+      try {
+        process.stdout.isTTY = false;
+        const lineNonTTY = formatOtpNotification({
+          accountId: "work",
+          sender: "Google",
+          code: "123456"
+        });
+        expect(lineNonTTY).toContain("Google (work) -> ******");
+        expect(/\d/.test(lineNonTTY.split("->")[1])).toBe(false);
+
+        process.stdout.isTTY = true;
+        const lineTTY = formatOtpNotification({
+          accountId: "work",
+          sender: "Google",
+          code: "123456"
+        });
+        expect(lineTTY).toContain("Google (work) -> 123456");
+      } finally {
+        process.stdout.isTTY = origIsTTY;
+      }
+    });
+  });
+
+  describe("Exit Code 78 for Service Configuration Problems", () => {
+    it("exits with 78 when no extension is paired", async () => {
+      let exitCode: number | undefined;
+      await serviceAction({
+        homeDir: tempDir,
+        noWatch: true,
+        exitImpl: (code) => {
+          exitCode = code;
+        }
+      });
+      expect(exitCode).toBe(78);
+    });
+
+    it("exits with 78 when no accounts are connected", async () => {
+      await pairAction("abcdefghijklmnopabcdefghijklmnop", { homeDir: tempDir });
+      let exitCode: number | undefined;
+      await serviceAction({
+        homeDir: tempDir,
+        noWatch: false,
+        exitImpl: (code) => {
+          exitCode = code;
+        }
+      });
+      expect(exitCode).toBe(78);
+    });
+  });
+
+  describe("Auto-Start Enable and Disable", () => {
+    it("generates systemd unit with proper quoting, % escaping, and no secrets", () => {
+      const unit = generateSystemdUnit({
+        nodePath: "/usr/local/bin/%node-20%",
+        cliPath: "/opt/autootp/dist/index.js",
+        autootpHome: "/custom/%autootp%_home"
+      });
+
+      // Both paths must be double-quoted in ExecStart
+      expect(unit).toContain('ExecStart="/usr/local/bin/%%node-20%%" "/opt/autootp/dist/index.js" service');
+      // Every % must be escaped as %%
+      expect(unit).toContain('Environment="AUTOOTP_HOME=/custom/%%autootp%%_home"');
+      // Required systemd directives
+      expect(unit).toContain("Restart=on-failure");
+      expect(unit).toContain("RestartSec=5");
+      expect(unit).toContain("RestartPreventExitStatus=78");
+      expect(unit).toContain("NoNewPrivileges=yes");
+      expect(unit).toContain("[Install]\nWantedBy=default.target");
+      // No secrets of any kind
+      expect(unit).not.toMatch(/token|secret|password|bearer|key/i);
+    });
+
+    it("omits Environment line from systemd unit when AUTOOTP_HOME is not set", () => {
+      const unit = generateSystemdUnit({
+        nodePath: "/usr/bin/node",
+        cliPath: "/opt/autootp/dist/index.js"
+      });
+
+      expect(unit).not.toContain("Environment=");
+    });
+
+    it("refuses paths containing newline characters in systemd unit", () => {
+      expect(() =>
+        generateSystemdUnit({
+          nodePath: "/usr/bin/node\nrm -rf /",
+          cliPath: "/opt/autootp/dist/index.js"
+        })
+      ).toThrow(/newline/i);
+
+      expect(() =>
+        generateSystemdUnit({
+          nodePath: "/usr/bin/node",
+          cliPath: "/opt/autootp/dist/index.js\r"
+        })
+      ).toThrow(/newline/i);
+    });
+
+    it("generates macOS launchd plist with required tags and log paths", () => {
+      const plist = generateLaunchdPlist({
+        nodePath: "/usr/local/bin/node",
+        cliPath: "/Users/test/autootp/dist/index.js",
+        homeDir: "/Users/test/.autootp"
+      });
+
+      expect(plist).toContain("<key>Label</key>\n  <string>org.autootp.service</string>");
+      expect(plist).toContain("<key>RunAtLoad</key>\n  <true/>");
+      expect(plist).toContain("<key>KeepAlive</key>\n  <dict>\n    <key>SuccessfulExit</key>\n    <false/>\n  </dict>");
+      expect(plist).toContain("<string>/Users/test/.autootp/logs/service.log</string>");
+      expect(plist).toContain("<string>/usr/local/bin/node</string>");
+      expect(plist).toContain("<string>/Users/test/autootp/dist/index.js</string>");
+      expect(plist).toContain("<string>service</string>");
+    });
+
+    it("refuses enable when prerequisites are missing (no extension paired)", async () => {
+      const executedCommands: Array<{ file: string; args: string[] }> = [];
+      const mockExec: ExecFunction = async (file, args) => {
+        executedCommands.push({ file, args });
+        return { stdout: "", stderr: "" };
+      };
+
+      let exitCode: number | undefined;
+      await enableAction({
+        homeDir: tempDir,
+        platform: "linux",
+        execFn: mockExec,
+        exitImpl: (code) => {
+          exitCode = code;
+        }
+      });
+
+      expect(exitCode).toBe(78);
+      // Nothing should have been executed or installed
+      expect(executedCommands).toHaveLength(0);
+    });
+
+    it("refuses enable when prerequisites are missing (no accounts connected)", async () => {
+      await pairAction("abcdefghijklmnopabcdefghijklmnop", { homeDir: tempDir });
+
+      const executedCommands: Array<{ file: string; args: string[] }> = [];
+      const mockExec: ExecFunction = async (file, args) => {
+        executedCommands.push({ file, args });
+        return { stdout: "", stderr: "" };
+      };
+
+      let exitCode: number | undefined;
+      await enableAction({
+        homeDir: tempDir,
+        platform: "linux",
+        execFn: mockExec,
+        exitImpl: (code) => {
+          exitCode = code;
+        }
+      });
+
+      expect(exitCode).toBe(78);
+      expect(executedCommands).toHaveLength(0);
+    });
+
+    it("prints message and exits 1 on Windows for enable and disable", async () => {
+      let exitCode: number | undefined;
+      await enableAction({
+        homeDir: tempDir,
+        platform: "win32",
+        exitImpl: (code) => {
+          exitCode = code;
+        }
+      });
+      expect(exitCode).toBe(1);
+
+      let disableExitCode: number | undefined;
+      await disableAction({
+        homeDir: tempDir,
+        platform: "win32",
+        exitImpl: (code) => {
+          disableExitCode = code;
+        }
+      });
+      expect(disableExitCode).toBe(1);
+    });
+
+    it("enables systemd service on Linux with mock exec", async () => {
+      await pairAction("abcdefghijklmnopabcdefghijklmnop", { homeDir: tempDir });
+      const store = new TokenStore(tempDir);
+      await store.set("personal", {
+        refreshToken: "mock-token",
+        email: "user@example.com",
+        addedAt: Date.now()
+      });
+
+      const executedCommands: Array<{ file: string; args: string[] }> = [];
+      const mockExec: ExecFunction = async (file, args) => {
+        executedCommands.push({ file, args });
+        return { stdout: "", stderr: "" };
+      };
+
+      await enableAction({
+        homeDir: tempDir,
+        unitDir: path.join(tempDir, "systemd"),
+        platform: "linux",
+        execFn: mockExec,
+        nodePath: "/usr/bin/node",
+        cliPath: "/opt/autootp/dist/index.js"
+      });
+
+      expect(executedCommands).toEqual([
+        { file: "systemctl", args: ["--user", "daemon-reload"] },
+        { file: "systemctl", args: ["--user", "enable", "--now", "autootp.service"] }
+      ]);
+    });
+
+    it("disables systemd service cleanly and is safe when nothing is installed", async () => {
+      const executedCommands: Array<{ file: string; args: string[] }> = [];
+      const mockExec: ExecFunction = async (file, args) => {
+        executedCommands.push({ file, args });
+        return { stdout: "", stderr: "" };
+      };
+
+      await disableAction({
+        unitDir: path.join(tempDir, "systemd"),
+        platform: "linux",
+        execFn: mockExec
+      });
+
+      expect(executedCommands).toEqual([
+        { file: "systemctl", args: ["--user", "stop", "autootp.service"] },
+        { file: "systemctl", args: ["--user", "disable", "autootp.service"] },
+        { file: "systemctl", args: ["--user", "daemon-reload"] },
+        { file: "systemctl", args: ["--user", "reset-failed"] }
+      ]);
+    });
+  });
+
+  describe("Status Command", () => {
+    it("prints four lines with service, accounts, extensions, and port status", async () => {
+      await pairAction("abcdefghijklmnopabcdefghijklmnop", { homeDir: tempDir });
+      const store = new TokenStore(tempDir);
+      await store.set("work", {
+        refreshToken: "mock-token",
+        email: "work@example.com",
+        addedAt: Date.now()
+      });
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await statusAction({
+          homeDir: tempDir,
+          platform: "linux",
+          execFn: async () => ({ stdout: "active\n", stderr: "" }),
+          checkPortListening: async () => true
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(lines).toHaveLength(4);
+      expect(lines[0]).toMatch(/^Service: (running|stopped|not installed)$/);
+      expect(lines[1]).toBe("Accounts: 1");
+      expect(lines[2]).toBe("Paired extensions: 1");
+      expect(lines[3]).toBe("Port 47821: listening");
+
+      // Verify no tokens leaked
+      for (const line of lines) {
+        expect(line).not.toMatch(/mock-token/);
+        expect(line).not.toMatch(/token/i);
+      }
+    });
+
+    it("reports stopped and not listening when inactive", async () => {
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await statusAction({
+          homeDir: tempDir,
+          platform: "linux",
+          execFn: async () => {
+            const err = new Error("inactive");
+            (err as any).stdout = "inactive\n";
+            throw err;
+          },
+          checkPortListening: async () => false
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(lines).toHaveLength(4);
+      expect(lines[0]).toMatch(/^Service: (stopped|not installed)$/);
+      expect(lines[1]).toBe("Accounts: 0");
+      expect(lines[2]).toBe("Paired extensions: 0");
+      expect(lines[3]).toBe("Port 47821: not listening");
     });
   });
 });

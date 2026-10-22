@@ -188,6 +188,7 @@ export async function pairAction(
 
 export interface ServiceCommandOptions extends CommandContext {
   noWatch?: boolean;
+  exitImpl?: (code: number) => void;
 }
 
 export async function serviceAction(
@@ -197,8 +198,12 @@ export async function serviceAction(
     noWatch: options.noWatch,
     homeDir: options.homeDir,
     fetchImpl: options.fetchImpl,
-    signal: options.signal
+    signal: options.signal,
+    exitImpl: options.exitImpl
   });
 }
+
+export * from "./autostart.js";
+
 
 

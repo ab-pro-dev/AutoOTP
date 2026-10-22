@@ -6,6 +6,7 @@ import {
   getOrCreatePairToken,
   TokenStore,
   formatOtpNotification,
+  ConfigurationError,
   AutoOtpConfig
 } from "@autootp/shared";
 import { watchAccount, ReauthRequiredError } from "@autootp/gmail";
@@ -37,10 +38,10 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
     const msg = "No extension paired. Run: autootp pair <extensionId>";
     if (options.exitImpl) {
       console.error(msg);
-      options.exitImpl(1);
+      options.exitImpl(78);
       return;
     }
-    throw new Error(msg);
+    throw new ConfigurationError(msg);
   }
 
   const store = new TokenStore(homeDir);
@@ -51,10 +52,10 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
       const msg = "No accounts connected. Run: autootp login";
       if (options.exitImpl) {
         console.error(msg);
-        options.exitImpl(1);
+        options.exitImpl(78);
         return;
       }
-      throw new Error(msg);
+      throw new ConfigurationError(msg);
     }
   }
 

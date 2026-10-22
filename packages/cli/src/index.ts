@@ -14,5 +14,6 @@ try {
   }
   const message = err instanceof Error ? err.message : String(err);
   console.error(message.split("\n")[0]);
-  process.exit(1);
+  const exitCode = (err as { exitCode?: number })?.exitCode ?? 1;
+  process.exit(exitCode);
 }
