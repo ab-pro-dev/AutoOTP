@@ -2,7 +2,10 @@ import {
   formatStatusLabel,
   formatOtpDisplay,
   isOtpUnderTenMinutes,
-  ConnectionStatus
+  deriveViewState,
+  ConnectionStatus,
+  LatestOtpState,
+  TabState
 } from "./logic.js";
 
 const statusText = document.getElementById("status-text");
@@ -16,21 +19,20 @@ const fillBtn = document.getElementById("fill-btn") as HTMLButtonElement | null;
 const askFirstCheckbox = document.getElementById("ask-first-checkbox") as HTMLInputElement | null;
 const senderSiteInfo = document.getElementById("sender-site-info");
 const mismatchWarning = document.getElementById("mismatch-warning");
+const usedFeedback = document.getElementById("used-feedback");
 const noFieldNotice = document.getElementById("no-field-notice");
 
 interface PopupState {
   status: ConnectionStatus;
-  latest: {
+  latest: (LatestOtpState & {
     sender: string;
-    senderDomain: string | null;
     code: string;
     account: string;
     receivedAt: number;
-    used?: boolean;
-  } | null;
-  tabHostname: string;
-  present: boolean;
-  mismatch: boolean;
+  }) | null;
+  tab?: TabState;
+  tabHostname?: string;
+  present?: boolean;
   askFirst: boolean;
 }
 
@@ -67,35 +69,59 @@ async function render(): Promise<void> {
       askFirstCheckbox.checked = Boolean(state.askFirst);
     }
 
+    const tab: TabState = state.tab || {
+      hostname: state.tabHostname || null,
+      present: Boolean(state.present)
+    };
+
+    const viewState = deriveViewState({
+      status: state.status,
+      latest: state.latest,
+      tab,
+      askFirst: state.askFirst
+    });
+
     const otp = state.latest;
-    if (otp && isOtpUnderTenMinutes(otp.receivedAt)) {
+    const hasFreshOtp = Boolean(otp && isOtpUnderTenMinutes(otp.receivedAt));
+
+    if (hasFreshOtp && otp) {
       if (otpContainer) otpContainer.style.display = "flex";
       if (otpText) otpText.textContent = formatOtpDisplay(otp);
 
       const senderDomain = otp.senderDomain || "unknown";
-      const site = state.tabHostname || "unknown";
+      const site = tab.hostname || "unknown";
       if (senderSiteInfo) {
         senderSiteInfo.textContent = `Sender: ${senderDomain} / This site: ${site}`;
       }
 
       if (fillBtn) {
-        fillBtn.disabled = !state.present;
-        if (state.mismatch) {
-          fillBtn.textContent = "Fill anyway";
-        } else {
-          fillBtn.textContent = "Fill";
-        }
+        fillBtn.disabled = !viewState.fillEnabled;
+        fillBtn.textContent = viewState.fillLabel;
       }
 
       if (mismatchWarning) {
-        mismatchWarning.style.display = state.mismatch ? "block" : "none";
+        mismatchWarning.style.display = viewState.showMismatchWarning ? "block" : "none";
       }
 
-      if (noFieldNotice) {
-        noFieldNotice.style.display = state.present ? "none" : "block";
+      if (usedFeedback) {
+        if (viewState.usedFeedback) {
+          usedFeedback.textContent = viewState.usedFeedback;
+          usedFeedback.style.display = "block";
+        } else {
+          usedFeedback.style.display = "none";
+        }
       }
     } else {
       if (otpContainer) otpContainer.style.display = "none";
+    }
+
+    if (noFieldNotice) {
+      if (viewState.hint) {
+        noFieldNotice.textContent = viewState.hint;
+        noFieldNotice.style.display = "block";
+      } else {
+        noFieldNotice.style.display = "none";
+      }
     }
   } catch {}
 }
@@ -110,6 +136,7 @@ askFirstCheckbox?.addEventListener("change", async () => {
 fillBtn?.addEventListener("click", async () => {
   try {
     await chrome.runtime.sendMessage({ type: "fill-now" });
+    await render();
   } catch {}
 });
 

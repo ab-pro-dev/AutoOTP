@@ -520,4 +520,136 @@ export function validateFillMessage(msg: unknown): FillMessage | null {
   return { type: "fill", code: m.code };
 }
 
+export interface LatestOtpState {
+  senderDomain: string | null;
+  ageMs: number;
+  used: boolean;
+  usedHostname?: string;
+  usedAgoMs?: number;
+  usedAt?: number;
+  usedAuto?: boolean;
+  [key: string]: unknown;
+}
+
+export interface TabState {
+  hostname: string | null;
+  present: boolean;
+}
+
+export interface DeriveViewStateParams {
+  status: ConnectionStatus;
+  latest: LatestOtpState | null;
+  tab: TabState;
+  askFirst: boolean;
+}
+
+export interface ViewState {
+  fillEnabled: boolean;
+  fillLabel: string;
+  showMismatchWarning: boolean;
+  hint: string | null;
+  usedFeedback?: string | null;
+}
+
+/**
+ * Formats feedback text for a previously filled code.
+ * E.g., "Filled automatically on github.com 5s ago" or "Filled on github.com 2m ago"
+ */
+export function formatUsedFeedback(
+  latest: {
+    usedHostname?: string;
+    usedAgoMs?: number;
+    usedAt?: number;
+    usedAuto?: boolean;
+    [key: string]: unknown;
+  } | null | undefined,
+  now = Date.now()
+): string | null {
+  if (!latest || !latest.usedHostname) {
+    return null;
+  }
+
+  let diffMs = 0;
+  if (typeof latest.usedAgoMs === "number" && Number.isFinite(latest.usedAgoMs)) {
+    diffMs = Math.max(0, latest.usedAgoMs);
+  } else if (typeof latest.usedAt === "number" && Number.isFinite(latest.usedAt)) {
+    diffMs = Math.max(0, now - latest.usedAt);
+  }
+
+  const diffSec = Math.floor(diffMs / 1000);
+  const ageStr = diffSec < 60 ? `${diffSec}s ago` : `${Math.floor(diffSec / 60)}m ago`;
+
+  if (latest.usedAuto) {
+    return `Filled automatically on ${latest.usedHostname} ${ageStr}`;
+  }
+  return `Filled on ${latest.usedHostname} ${ageStr}`;
+}
+
+/**
+ * Derives the UI view state for the extension popup.
+ * Rules:
+ * - tab.hostname null: fillEnabled false, showMismatchWarning false, hint "AutoOTP isn't active on this page. Reload it, or it may not be an https page."
+ * - hostname known but present false: fillEnabled false, showMismatchWarning false, hint "No code field found on this page"
+ * - present true and the sender matches (domainsMatch): fillEnabled true, fillLabel "Fill", no warning
+ * - present true and the sender is null or does not match: fillEnabled true, fillLabel "Fill anyway", showMismatchWarning true
+ * - no latest code or older than 10 minutes: fillEnabled false and no warning
+ * - Otherwise hint is null.
+ */
+export function deriveViewState(params: DeriveViewStateParams): ViewState {
+  const { latest, tab } = params;
+
+  let fillEnabled = false;
+  let fillLabel = "Fill";
+  let showMismatchWarning = false;
+  let hint: string | null = null;
+
+  if (!tab.hostname) {
+    fillEnabled = false;
+    showMismatchWarning = false;
+    hint = "AutoOTP isn't active on this page. Reload it, or it may not be an https page.";
+  } else if (!tab.present) {
+    fillEnabled = false;
+    showMismatchWarning = false;
+    hint = "No code field found on this page";
+  } else {
+    const isExpiredOrMissing =
+      !latest || typeof latest.ageMs !== "number" || latest.ageMs > OTP_MAX_AGE_MS;
+
+    if (isExpiredOrMissing) {
+      fillEnabled = false;
+      fillLabel = "Fill";
+      showMismatchWarning = false;
+      hint = null;
+    } else {
+      const match = Boolean(latest.senderDomain && domainsMatch(latest.senderDomain, tab.hostname));
+      if (match) {
+        fillEnabled = true;
+        fillLabel = "Fill";
+        showMismatchWarning = false;
+        hint = null;
+      } else {
+        fillEnabled = true;
+        fillLabel = "Fill anyway";
+        showMismatchWarning = true;
+        hint = null;
+      }
+    }
+  }
+
+  const result: ViewState = {
+    fillEnabled,
+    fillLabel,
+    showMismatchWarning,
+    hint
+  };
+
+  const feedback = formatUsedFeedback(latest);
+  if (feedback) {
+    result.usedFeedback = feedback;
+  }
+
+  return result;
+}
+
+
 

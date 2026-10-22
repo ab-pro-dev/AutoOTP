@@ -31,6 +31,9 @@ interface StoredOtp {
   account: string;
   receivedAt: number;
   used?: boolean;
+  usedHostname?: string;
+  usedAt?: number;
+  usedAuto?: boolean;
 }
 
 async function getRegistry(): Promise<TabRegistry> {
@@ -114,6 +117,9 @@ async function attemptAutofill(tabId: number, tabInfo: TabInfo): Promise<void> {
         { frameId: 0 }
       );
       latestOtp.used = true;
+      latestOtp.usedHostname = tabInfo.hostname;
+      latestOtp.usedAt = Date.now();
+      latestOtp.usedAuto = true;
       await chrome.storage.session.set({
         latestOtp,
         otp: latestOtp
@@ -352,17 +358,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       const latest = ((session.latestOtp || session.otp) as StoredOtp | undefined) || null;
 
-      let tabHostname = "";
+      let tabHostname: string | null = null;
       let present = false;
       const activeTab = await getActiveTab();
       if (activeTab && activeTab.id !== undefined) {
         const reg = await getRegistry();
         const tabInfo = reg[String(activeTab.id)];
-        if (tabInfo) {
+        if (tabInfo && tabInfo.hostname) {
           tabHostname = tabInfo.hostname;
           present = Boolean(tabInfo.present);
         }
       }
+
+      const now = Date.now();
+      const latestWithAges = latest
+        ? {
+            ...latest,
+            ageMs: Math.max(0, now - latest.receivedAt),
+            usedAgoMs: latest.usedAt ? Math.max(0, now - latest.usedAt) : undefined
+          }
+        : null;
 
       let mismatch = false;
       if (latest && tabHostname) {
@@ -375,8 +390,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
       sendResponse({
         status,
-        latest,
-        tabHostname,
+        latest: latestWithAges,
+        tab: {
+          hostname: tabHostname,
+          present
+        },
+        tabHostname: tabHostname || "",
         present,
         mismatch,
         askFirst
@@ -400,6 +419,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return;
       }
 
+      const reg = await getRegistry();
+      const tabInfo = reg[String(activeTab.id)];
+      const hostname = tabInfo?.hostname || "";
+
       try {
         await chrome.tabs.sendMessage(
           activeTab.id,
@@ -407,6 +430,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           { frameId: 0 }
         );
         latest.used = true;
+        latest.usedHostname = hostname;
+        latest.usedAt = Date.now();
+        latest.usedAuto = false;
         await chrome.storage.session.set({
           latestOtp: latest,
           otp: latest

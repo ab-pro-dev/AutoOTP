@@ -19,7 +19,9 @@ import {
   groupSegmented,
   validateFieldsMessage,
   validateFillMessage,
-  FieldDescriptor
+  FieldDescriptor,
+  deriveViewState,
+  formatUsedFeedback
 } from "./logic.js";
 
 describe("Backoff Calculation", () => {
@@ -780,5 +782,360 @@ describe("Message Validation", () => {
     expect(validateFillMessage({})).toBeNull();
   });
 });
+
+describe("deriveViewState", () => {
+  const makeLatest = (senderDomain: string | null = "github.com", overrides = {}) => ({
+    senderDomain,
+    code: "123456",
+    ageMs: 5000,
+    used: false,
+    ...overrides
+  });
+
+  const makeTab = (hostname: string | null = "github.com", present = true) => ({
+    hostname,
+    present
+  });
+
+  it("handles tab.hostname null: fillEnabled false, showMismatchWarning false, and inactive hint", () => {
+    const res = deriveViewState({
+      status: "connected",
+      latest: makeLatest(),
+      tab: { hostname: null, present: false },
+      askFirst: false
+    });
+
+    expect(res).toEqual({
+      fillEnabled: false,
+      fillLabel: "Fill",
+      showMismatchWarning: false,
+      hint: "AutoOTP isn't active on this page. Reload it, or it may not be an https page."
+    });
+  });
+
+  it("handles empty tab.hostname string as null", () => {
+    const res = deriveViewState({
+      status: "connected",
+      latest: makeLatest(),
+      tab: { hostname: "", present: false },
+      askFirst: false
+    });
+
+    expect(res.fillEnabled).toBe(false);
+    expect(res.showMismatchWarning).toBe(false);
+    expect(res.hint).toBe("AutoOTP isn't active on this page. Reload it, or it may not be an https page.");
+  });
+
+  it("handles hostname known but present false: fillEnabled false, showMismatchWarning false, and no field hint", () => {
+    const res = deriveViewState({
+      status: "connected",
+      latest: makeLatest("github.com"),
+      tab: makeTab("github.com", false),
+      askFirst: false
+    });
+
+    expect(res).toEqual({
+      fillEnabled: false,
+      fillLabel: "Fill",
+      showMismatchWarning: false,
+      hint: "No code field found on this page"
+    });
+
+    // Even if domains mismatch, warning is false and hint is no field found
+    const resMismatch = deriveViewState({
+      status: "connected",
+      latest: makeLatest("gmail.com"),
+      tab: makeTab("github.com", false),
+      askFirst: false
+    });
+
+    expect(resMismatch.fillEnabled).toBe(false);
+    expect(resMismatch.showMismatchWarning).toBe(false);
+    expect(resMismatch.hint).toBe("No code field found on this page");
+  });
+
+  it("handles present true and sender matches (domainsMatch): fillEnabled true, fillLabel 'Fill', no warning", () => {
+    const res = deriveViewState({
+      status: "connected",
+      latest: makeLatest("github.com"),
+      tab: makeTab("github.com", true),
+      askFirst: false
+    });
+
+    expect(res).toEqual({
+      fillEnabled: true,
+      fillLabel: "Fill",
+      showMismatchWarning: false,
+      hint: null
+    });
+
+    // Subdomain matching registrable domain
+    const resSub = deriveViewState({
+      status: "connected",
+      latest: makeLatest("mail.github.com"),
+      tab: makeTab("github.com", true),
+      askFirst: false
+    });
+
+    expect(resSub.fillEnabled).toBe(true);
+    expect(resSub.fillLabel).toBe("Fill");
+    expect(resSub.showMismatchWarning).toBe(false);
+    expect(resSub.hint).toBeNull();
+  });
+
+  it("handles present true and sender is null or does not match: fillEnabled true, fillLabel 'Fill anyway', showMismatchWarning true", () => {
+    const resNullSender = deriveViewState({
+      status: "connected",
+      latest: makeLatest(null),
+      tab: makeTab("github.com", true),
+      askFirst: false
+    });
+
+    expect(resNullSender).toEqual({
+      fillEnabled: true,
+      fillLabel: "Fill anyway",
+      showMismatchWarning: true,
+      hint: null
+    });
+
+    const resMismatchedDomain = deriveViewState({
+      status: "connected",
+      latest: makeLatest("gmail.com"),
+      tab: makeTab("github.com", true),
+      askFirst: false
+    });
+
+    expect(resMismatchedDomain).toEqual({
+      fillEnabled: true,
+      fillLabel: "Fill anyway",
+      showMismatchWarning: true,
+      hint: null
+    });
+
+    const resEvil = deriveViewState({
+      status: "connected",
+      latest: makeLatest("github.com"),
+      tab: makeTab("github.com.evil.com", true),
+      askFirst: false
+    });
+
+    expect(resEvil.fillEnabled).toBe(true);
+    expect(resEvil.fillLabel).toBe("Fill anyway");
+    expect(resEvil.showMismatchWarning).toBe(true);
+  });
+
+  it("handles no latest code or code older than 10 minutes: fillEnabled false and no warning", () => {
+    const resNoLatest = deriveViewState({
+      status: "connected",
+      latest: null,
+      tab: makeTab("github.com", true),
+      askFirst: false
+    });
+
+    expect(resNoLatest).toEqual({
+      fillEnabled: false,
+      fillLabel: "Fill",
+      showMismatchWarning: false,
+      hint: null
+    });
+
+    const resStale = deriveViewState({
+      status: "connected",
+      latest: makeLatest("github.com", { ageMs: 660000 }),
+      tab: makeTab("github.com", true),
+      askFirst: false
+    });
+
+    expect(resStale).toEqual({
+      fillEnabled: false,
+      fillLabel: "Fill",
+      showMismatchWarning: false,
+      hint: null
+    });
+
+    // Even on domain mismatch, if expired, warning is false and fillEnabled is false
+    const resStaleMismatch = deriveViewState({
+      status: "connected",
+      latest: makeLatest("gmail.com", { ageMs: 700000 }),
+      tab: makeTab("github.com", true),
+      askFirst: false
+    });
+
+    expect(resStaleMismatch.fillEnabled).toBe(false);
+    expect(resStaleMismatch.showMismatchWarning).toBe(false);
+    expect(resStaleMismatch.hint).toBeNull();
+
+    // Exactly 10 minutes (600,000 ms) is still accepted
+    const resExact10m = deriveViewState({
+      status: "connected",
+      latest: makeLatest("github.com", { ageMs: 600000 }),
+      tab: makeTab("github.com", true),
+      askFirst: false
+    });
+    expect(resExact10m.fillEnabled).toBe(true);
+
+    // 10 minutes + 1 ms is expired
+    const resJustExpired = deriveViewState({
+      status: "connected",
+      latest: makeLatest("github.com", { ageMs: 600001 }),
+      tab: makeTab("github.com", true),
+      askFirst: false
+    });
+    expect(resJustExpired.fillEnabled).toBe(false);
+  });
+
+  it("verifies the exact cases from verification script b", () => {
+    const L = (s: string | null) => ({
+      senderDomain: s,
+      code: "123456",
+      ageMs: 5000,
+      used: false
+    });
+    const T = (h: string | null, p: boolean) => ({ hostname: h, present: p });
+
+    expect(
+      deriveViewState({
+        status: "connected",
+        latest: L("github.com"),
+        tab: T("github.com", true),
+        askFirst: false
+      })
+    ).toEqual({
+      fillEnabled: true,
+      fillLabel: "Fill",
+      showMismatchWarning: false,
+      hint: null
+    });
+
+    expect(
+      deriveViewState({
+        status: "connected",
+        latest: L("gmail.com"),
+        tab: T("github.com", true),
+        askFirst: false
+      })
+    ).toEqual({
+      fillEnabled: true,
+      fillLabel: "Fill anyway",
+      showMismatchWarning: true,
+      hint: null
+    });
+
+    expect(
+      deriveViewState({
+        status: "connected",
+        latest: L("gmail.com"),
+        tab: T("github.com", false),
+        askFirst: false
+      })
+    ).toEqual({
+      fillEnabled: false,
+      fillLabel: "Fill",
+      showMismatchWarning: false,
+      hint: "No code field found on this page"
+    });
+
+    expect(
+      deriveViewState({
+        status: "connected",
+        latest: L("gmail.com"),
+        tab: T(null, false),
+        askFirst: false
+      })
+    ).toEqual({
+      fillEnabled: false,
+      fillLabel: "Fill",
+      showMismatchWarning: false,
+      hint: "AutoOTP isn't active on this page. Reload it, or it may not be an https page."
+    });
+  });
+});
+
+describe("formatUsedFeedback", () => {
+  it("formats automatic fill feedback with seconds and minutes", () => {
+    expect(
+      formatUsedFeedback({
+        usedHostname: "github.com",
+        usedAgoMs: 5000,
+        usedAuto: true
+      })
+    ).toBe("Filled automatically on github.com 5s ago");
+
+    expect(
+      formatUsedFeedback({
+        usedHostname: "accounts.google.com",
+        usedAgoMs: 45000,
+        usedAuto: true
+      })
+    ).toBe("Filled automatically on accounts.google.com 45s ago");
+
+    expect(
+      formatUsedFeedback({
+        usedHostname: "github.com",
+        usedAgoMs: 120000,
+        usedAuto: true
+      })
+    ).toBe("Filled automatically on github.com 2m ago");
+  });
+
+  it("formats manual fill feedback with seconds and minutes", () => {
+    expect(
+      formatUsedFeedback({
+        usedHostname: "github.com",
+        usedAgoMs: 10000,
+        usedAuto: false
+      })
+    ).toBe("Filled on github.com 10s ago");
+
+    expect(
+      formatUsedFeedback({
+        usedHostname: "example.com",
+        usedAgoMs: 180000,
+        usedAuto: false
+      })
+    ).toBe("Filled on example.com 3m ago");
+  });
+
+  it("computes age from usedAt timestamp when usedAgoMs is not provided", () => {
+    const now = 1700000050000;
+    const usedAt = 1700000042000; // 8s ago
+    expect(
+      formatUsedFeedback(
+        {
+          usedHostname: "github.com",
+          usedAt,
+          usedAuto: true
+        },
+        now
+      )
+    ).toBe("Filled automatically on github.com 8s ago");
+  });
+
+  it("returns null if latest is null or usedHostname is not present", () => {
+    expect(formatUsedFeedback(null)).toBeNull();
+    expect(formatUsedFeedback(undefined)).toBeNull();
+    expect(formatUsedFeedback({ usedHostname: undefined })).toBeNull();
+    expect(formatUsedFeedback({ usedHostname: "" })).toBeNull();
+  });
+
+  it("integrates used feedback into deriveViewState when usedHostname is present", () => {
+    const res = deriveViewState({
+      status: "connected",
+      latest: {
+        senderDomain: "github.com",
+        ageMs: 5000,
+        used: true,
+        usedHostname: "github.com",
+        usedAgoMs: 12000,
+        usedAuto: true
+      },
+      tab: { hostname: "github.com", present: true },
+      askFirst: false
+    });
+
+    expect(res.usedFeedback).toBe("Filled automatically on github.com 12s ago");
+  });
+});
+
 
 

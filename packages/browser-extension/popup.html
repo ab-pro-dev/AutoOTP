@@ -80,10 +80,17 @@
       font-weight: 500;
       display: none;
     }
+    #used-feedback {
+      font-size: 11px;
+      color: #059669;
+      font-weight: 500;
+      display: none;
+    }
     #no-field-notice {
       font-size: 11px;
       color: #6b7280;
       font-style: italic;
+      margin-bottom: 12px;
       display: none;
     }
     .checkbox-row {
@@ -189,8 +196,10 @@
       <button id="fill-btn" type="button" disabled>Fill</button>
     </div>
     <div id="mismatch-warning">Sender does not match this site.</div>
-    <div id="no-field-notice">No code field found on this page</div>
+    <div id="used-feedback"></div>
   </div>
+
+  <div id="no-field-notice"></div>
 
   <label class="checkbox-row">
     <input type="checkbox" id="ask-first-checkbox" />
