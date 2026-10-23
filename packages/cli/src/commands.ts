@@ -5,7 +5,8 @@ import {
   saveConfig,
   getOrCreatePairToken,
   HistoryStore,
-  HistoryRetention
+  HistoryRetention,
+  NotificationMode
 } from "@autootp/shared";
 import { loginWithBrowser, watchAccount, ReauthRequiredError } from "@autootp/gmail";
 import { startService } from "@autootp/service";
@@ -211,6 +212,7 @@ export async function configAction(context: CommandContext = {}): Promise<void> 
   const homeDir = context.homeDir ?? getHomeDir();
   const config = loadConfig(homeDir);
   console.log(`historyRetention: ${config.historyRetention}`);
+  console.log(`notifications: ${config.notifications}`);
 }
 
 export async function configSetAction(
@@ -221,24 +223,41 @@ export async function configSetAction(
   const exit = context.exitImpl ?? process.exit;
   const homeDir = context.homeDir ?? getHomeDir();
 
-  if (key !== "historyRetention") {
+  if (key !== "historyRetention" && key !== "notifications") {
     console.error(
-      `Unknown configuration key "${key}". Only "historyRetention" can be configured.`
+      `Unknown configuration key "${key}". Only "historyRetention" and "notifications" can be configured.`
     );
     exit(1);
     return;
   }
 
-  if (value !== "off" && value !== "5m" && value !== "30m" && value !== "1h") {
-    console.error(
-      `Invalid value "${value}" for historyRetention. Valid values: off, 5m, 30m, 1h`
-    );
-    exit(1);
+  if (key === "historyRetention") {
+    if (value !== "off" && value !== "5m" && value !== "30m" && value !== "1h") {
+      console.error(
+        `Invalid value "${value}" for historyRetention. Valid values: off, 5m, 30m, 1h`
+      );
+      exit(1);
+      return;
+    }
+
+    saveConfig({ historyRetention: value as HistoryRetention }, homeDir);
+    console.log(`historyRetention: ${value}`);
     return;
   }
 
-  saveConfig({ historyRetention: value as HistoryRetention }, homeDir);
-  console.log(`historyRetention: ${value}`);
+  if (key === "notifications") {
+    if (value !== "off" && value !== "hidden" && value !== "code") {
+      console.error(
+        `Invalid value "${value}" for notifications. Valid values: off, hidden, code`
+      );
+      exit(1);
+      return;
+    }
+
+    saveConfig({ notifications: value as NotificationMode }, homeDir);
+    console.log(`notifications: ${value}`);
+    return;
+  }
 }
 
 export async function historyAction(context: CommandContext = {}): Promise<void> {

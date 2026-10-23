@@ -777,7 +777,7 @@ describe("CLI utilities and commands", () => {
       }
 
       expect(exitCode).toBe(1);
-      expect(errors[0]).toMatch(/Only "historyRetention" can be configured/);
+      expect(errors[0]).toMatch(/Only "historyRetention" and "notifications" can be configured/);
     });
 
     it("rejects invalid historyRetention values and exits 1", async () => {
@@ -799,6 +799,38 @@ describe("CLI utilities and commands", () => {
 
       expect(exitCode).toBe(1);
       expect(errors[0]).toMatch(/Valid values: off, 5m, 30m, 1h/);
+    });
+
+    it("sets valid notifications value and validates in config", async () => {
+      await configSetAction("notifications", "hidden", { homeDir: tempDir });
+      expect(loadConfig(tempDir).notifications).toBe("hidden");
+
+      await configSetAction("notifications", "off", { homeDir: tempDir });
+      expect(loadConfig(tempDir).notifications).toBe("off");
+
+      await configSetAction("notifications", "code", { homeDir: tempDir });
+      expect(loadConfig(tempDir).notifications).toBe("code");
+    });
+
+    it("rejects invalid notifications values and exits 1", async () => {
+      let exitCode: number | undefined;
+      const errors: string[] = [];
+      const origErr = console.error;
+      console.error = (msg: string) => errors.push(msg);
+
+      try {
+        await configSetAction("notifications", "loud", {
+          homeDir: tempDir,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.error = origErr;
+      }
+
+      expect(exitCode).toBe(1);
+      expect(errors[0]).toMatch(/Valid values: off, hidden, code/);
     });
   });
 

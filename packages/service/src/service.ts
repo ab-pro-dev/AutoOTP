@@ -12,6 +12,7 @@ import {
 } from "@autootp/shared";
 import { watchAccount, ReauthRequiredError } from "@autootp/gmail";
 import { createOtpServer, OtpServer } from "@autootp/websocket";
+import { DesktopNotifier, ExecFunction } from "./notifier.js";
 
 export interface StartServiceOptions {
   noWatch?: boolean;
@@ -23,6 +24,10 @@ export interface StartServiceOptions {
   config?: AutoOtpConfig;
   token?: string;
   historyStore?: HistoryStore;
+  execFn?: ExecFunction;
+  platform?: NodeJS.Platform;
+  now?: () => number;
+  notifier?: DesktopNotifier;
 }
 
 /**
@@ -84,6 +89,16 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
 
   process.once("SIGINT", onSigint);
 
+  const notifier =
+    options.notifier ??
+    new DesktopNotifier({
+      homeDir,
+      platform: options.platform,
+      execFn: options.execFn,
+      now: options.now,
+      config
+    });
+
   let historyStore: HistoryStore | null = null;
   try {
     historyStore = options.historyStore ?? new HistoryStore(homeDir);
@@ -144,7 +159,7 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
           pollMs: config.pollMs,
           signal,
           fetchImpl: options.fetchImpl,
-          onOtp: (otp) => {
+          onOtp: async (otp) => {
             // Broadcast to authenticated WebSocket clients
             server.broadcastOtp({
               id: otp.messageId ?? otp.id ?? crypto.randomUUID(),
@@ -165,6 +180,13 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
               })
             );
 
+            // Send desktop notification
+            try {
+              await notifier.notifyOtp(otp.sender, otp.code);
+            } catch {
+              // Failures of the notification command are caught and ignored
+            }
+
             // Add to history and purge
             try {
               if (historyStore) {
@@ -181,7 +203,7 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
               // Wrap history errors so they can never stop OTP delivery
             }
           },
-          onError: (err) => {
+          onError: async (err) => {
             if (
               err instanceof ReauthRequiredError ||
               err.name === "ReauthRequiredError"
@@ -189,6 +211,11 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
               console.log(
                 `${alias}: Google access expired. Run: autootp login ${alias} again.`
               );
+              try {
+                await notifier.notifyExpiry(alias);
+              } catch {
+                // Failures of the notification command are caught and ignored
+              }
             }
           }
         })

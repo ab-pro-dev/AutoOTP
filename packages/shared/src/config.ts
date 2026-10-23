@@ -12,18 +12,28 @@ export const VALID_HISTORY_RETENTIONS: ReadonlySet<string> = new Set([
   "1h"
 ]);
 
+export type NotificationMode = "off" | "hidden" | "code";
+
+export const VALID_NOTIFICATION_MODES: ReadonlySet<string> = new Set([
+  "off",
+  "hidden",
+  "code"
+]);
+
 export interface AutoOtpConfig {
   allowedOrigins: string[];
   port: number;
   pollMs: number;
   historyRetention: HistoryRetention;
+  notifications: NotificationMode;
 }
 
 export const DEFAULT_CONFIG: Readonly<AutoOtpConfig> = Object.freeze({
   allowedOrigins: [],
   port: 47821,
   pollMs: 3000,
-  historyRetention: "5m"
+  historyRetention: "5m",
+  notifications: "code"
 });
 
 export const CHROME_EXTENSION_ORIGIN_REGEX = /^chrome-extension:\/\/[a-p]{32}$/;
@@ -73,6 +83,17 @@ export function validateConfig(config: unknown): asserts config is AutoOtpConfig
       );
     }
   }
+
+  if (c.notifications !== undefined) {
+    if (
+      typeof c.notifications !== "string" ||
+      !VALID_NOTIFICATION_MODES.has(c.notifications)
+    ) {
+      throw new Error(
+        `Invalid configuration: notifications must be one of 'off', 'hidden', 'code', got ${String(c.notifications)}`
+      );
+    }
+  }
 }
 
 /**
@@ -89,7 +110,8 @@ export function loadConfig(homeDir: string = getHomeDir()): AutoOtpConfig {
       allowedOrigins: [...DEFAULT_CONFIG.allowedOrigins],
       port: DEFAULT_CONFIG.port,
       pollMs: DEFAULT_CONFIG.pollMs,
-      historyRetention: DEFAULT_CONFIG.historyRetention
+      historyRetention: DEFAULT_CONFIG.historyRetention,
+      notifications: DEFAULT_CONFIG.notifications
     };
   }
 
@@ -107,7 +129,8 @@ export function loadConfig(homeDir: string = getHomeDir()): AutoOtpConfig {
     allowedOrigins: [...parsed.allowedOrigins],
     port: parsed.port,
     pollMs: parsed.pollMs,
-    historyRetention: parsed.historyRetention ?? DEFAULT_CONFIG.historyRetention
+    historyRetention: parsed.historyRetention ?? DEFAULT_CONFIG.historyRetention,
+    notifications: parsed.notifications ?? DEFAULT_CONFIG.notifications
   };
 }
 
@@ -126,7 +149,8 @@ export function saveConfig(
     allowedOrigins: config.allowedOrigins ?? [...current.allowedOrigins],
     port: config.port ?? current.port,
     pollMs: config.pollMs ?? current.pollMs,
-    historyRetention: config.historyRetention ?? current.historyRetention
+    historyRetention: config.historyRetention ?? current.historyRetention,
+    notifications: config.notifications ?? current.notifications
   };
 
   validateConfig(merged);

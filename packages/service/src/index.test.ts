@@ -9,7 +9,13 @@ import {
   getOrCreatePairToken,
   HistoryStore
 } from "@autootp/shared";
-import { startService } from "./index.js";
+import {
+  startService,
+  sanitizeNotificationText,
+  DesktopNotifier,
+  MACOS_NOTIFICATION_SCRIPT
+} from "./index.js";
+import { ReauthRequiredError } from "@autootp/gmail";
 
 function waitForOpen(ws: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -251,5 +257,328 @@ describe("AutoOTP Service (packages/service)", () => {
     expect(historyEntries[0].sender).toBe("Service");
     expect(historyEntries[0].alias).toBe("personal");
     historyStore.close();
+  });
+});
+
+describe("Desktop Notifications (packages/service)", () => {
+  let tempDir: string;
+  const originalHome = process.env.AUTOOTP_HOME;
+
+  beforeEach(() => {
+    const tmpBase = process.env.TMPDIR || process.env.TEMP || "/tmp";
+    tempDir = fs.mkdtempSync(path.join(tmpBase, "autootp-notifier-test-"));
+    process.env.AUTOOTP_HOME = tempDir;
+  });
+
+  afterEach(() => {
+    if (originalHome !== undefined) {
+      process.env.AUTOOTP_HOME = originalHome;
+    } else {
+      delete process.env.AUTOOTP_HOME;
+    }
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  describe("sanitizeNotificationText", () => {
+    it("sanitizes markup and replaces < > & with spaces", () => {
+      const input = "<b>Hello & World</b> <tag>";
+      const result = sanitizeNotificationText(input);
+      expect(result).toBe("b Hello World /b tag");
+      expect(result).not.toContain("<");
+      expect(result).not.toContain(">");
+      expect(result).not.toContain("&");
+    });
+
+    it("removes newlines", () => {
+      const input = "Line1\r\nLine2\nLine3";
+      const result = sanitizeNotificationText(input);
+      expect(result).toBe("Line1Line2Line3");
+      expect(result).not.toContain("\n");
+      expect(result).not.toContain("\r");
+    });
+
+    it("removes control characters", () => {
+      const input = "Hello\u0007\x00\x1fWorld\x7f";
+      const result = sanitizeNotificationText(input);
+      expect(result).toBe("HelloWorld");
+      expect(/[\x00-\x1f\x7f]/.test(result)).toBe(false);
+    });
+
+    it("strips leading dashes and spaces while preserving internal dashes", () => {
+      expect(sanitizeNotificationText("--flag")).toBe("flag");
+      expect(sanitizeNotificationText("-flag")).toBe("flag");
+      expect(sanitizeNotificationText("- -flag")).toBe("flag");
+      expect(sanitizeNotificationText("foo-bar")).toBe("foo-bar");
+      expect(sanitizeNotificationText("service - backup")).toBe("service - backup");
+      expect(sanitizeNotificationText("--")).toBe("Unknown sender");
+      expect(sanitizeNotificationText("---")).toBe("Unknown sender");
+      expect(sanitizeNotificationText("   ---   ")).toBe("Unknown sender");
+    });
+
+    it("cuts to max characters (default 40 and custom max)", () => {
+      const longInput = "a".repeat(80);
+      const defaultSanitized = sanitizeNotificationText(longInput);
+      expect(defaultSanitized).toHaveLength(40);
+      expect(defaultSanitized).toBe("a".repeat(40));
+
+      const customSanitized = sanitizeNotificationText(longInput, 15);
+      expect(customSanitized).toHaveLength(15);
+      expect(customSanitized).toBe("a".repeat(15));
+    });
+
+    it("returns 'Unknown sender' for empty or whitespace or stripped-empty inputs", () => {
+      expect(sanitizeNotificationText("")).toBe("Unknown sender");
+      expect(sanitizeNotificationText("   ")).toBe("Unknown sender");
+      expect(sanitizeNotificationText("\n\r\t \u0007")).toBe("Unknown sender");
+      expect(sanitizeNotificationText("<>&")).toBe("Unknown sender");
+      expect(sanitizeNotificationText(null as any)).toBe("Unknown sender");
+      expect(sanitizeNotificationText(undefined as any)).toBe("Unknown sender");
+    });
+  });
+
+  describe("Notifier execution and exact argument arrays", () => {
+    it("passes exact argument array for Linux (notify-send)", async () => {
+      const calls: Array<{ file: string; args: string[] }> = [];
+      const mockExec = async (file: string, args: string[]) => {
+        calls.push({ file, args });
+      };
+
+      const notifier = new DesktopNotifier({
+        homeDir: tempDir,
+        platform: "linux",
+        execFn: mockExec
+      });
+
+      await notifier.send("AutoOTP: GitHub", "Code: 123456");
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toEqual({
+        file: "notify-send",
+        args: [
+          "-a",
+          "AutoOTP",
+          "-t",
+          "15000",
+          "-h",
+          "int:transient:1",
+          "--",
+          "AutoOTP: GitHub",
+          "Code: 123456"
+        ]
+      });
+    });
+
+    it("passes exact argument array for macOS (osascript)", async () => {
+      const calls: Array<{ file: string; args: string[] }> = [];
+      const mockExec = async (file: string, args: string[]) => {
+        calls.push({ file, args });
+      };
+
+      const notifier = new DesktopNotifier({
+        homeDir: tempDir,
+        platform: "darwin",
+        execFn: mockExec
+      });
+
+      await notifier.send("AutoOTP: GitHub", "Code: 123456");
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0]).toEqual({
+        file: "osascript",
+        args: ["-e", MACOS_NOTIFICATION_SCRIPT, "AutoOTP: GitHub", "Code: 123456"]
+      });
+    });
+
+    it("does nothing and never throws on Windows", async () => {
+      const calls: Array<{ file: string; args: string[] }> = [];
+      const mockExec = async (file: string, args: string[]) => {
+        calls.push({ file, args });
+      };
+
+      const notifier = new DesktopNotifier({
+        homeDir: tempDir,
+        platform: "win32",
+        execFn: mockExec
+      });
+
+      await expect(notifier.send("AutoOTP: GitHub", "Code: 123456")).resolves.not.toThrow();
+      expect(calls).toHaveLength(0);
+    });
+
+    it("catches and ignores notification command failures without throwing", async () => {
+      const failingExec = async () => {
+        throw new Error("Command failed: notify-send: command not found");
+      };
+
+      const notifier = new DesktopNotifier({
+        homeDir: tempDir,
+        platform: "linux",
+        execFn: failingExec
+      });
+
+      await expect(notifier.send("Title", "Body")).resolves.not.toThrow();
+      await expect(notifier.notifyOtp("GitHub", "123456")).resolves.not.toThrow();
+      await expect(notifier.notifyExpiry("personal")).resolves.not.toThrow();
+    });
+  });
+
+  describe("Three notification modes and dynamic config reloading", () => {
+    it("mode 'code' shows sender in title and code in body", async () => {
+      const calls: Array<{ file: string; args: string[] }> = [];
+      const notifier = new DesktopNotifier({
+        homeDir: tempDir,
+        platform: "linux",
+        execFn: async (file, args) => {
+          calls.push({ file, args });
+        }
+      });
+
+      saveConfig({ notifications: "code" }, tempDir);
+      await notifier.notifyOtp("GitHub", "987654");
+
+      expect(calls).toHaveLength(1);
+      const [title, body] = calls[0].args.slice(7);
+      expect(title).toBe("AutoOTP: GitHub");
+      expect(body).toBe("Code: 987654");
+    });
+
+    it("mode 'hidden' shows title and 'New code received' with no digits anywhere", async () => {
+      const calls: Array<{ file: string; args: string[] }> = [];
+      const notifier = new DesktopNotifier({
+        homeDir: tempDir,
+        platform: "linux",
+        execFn: async (file, args) => {
+          calls.push({ file, args });
+        }
+      });
+
+      saveConfig({ notifications: "hidden" }, tempDir);
+      await notifier.notifyOtp("GitHub", "987654");
+
+      expect(calls).toHaveLength(1);
+      const [title, body] = calls[0].args.slice(7);
+      expect(title).toBe("AutoOTP: GitHub");
+      expect(body).toBe("New code received");
+      // Must contain NO digits anywhere
+      expect(/\d/.test(body)).toBe(false);
+      expect(title).not.toContain("987654");
+      expect(body).not.toContain("987654");
+    });
+
+    it("mode 'off' sends no notification for OTP codes", async () => {
+      const calls: Array<{ file: string; args: string[] }> = [];
+      const notifier = new DesktopNotifier({
+        homeDir: tempDir,
+        platform: "linux",
+        execFn: async (file, args) => {
+          calls.push({ file, args });
+        }
+      });
+
+      saveConfig({ notifications: "off" }, tempDir);
+      await notifier.notifyOtp("GitHub", "987654");
+
+      expect(calls).toHaveLength(0);
+    });
+
+    it("reloads config on every notification without restart", async () => {
+      const calls: Array<{ file: string; args: string[] }> = [];
+      const notifier = new DesktopNotifier({
+        homeDir: tempDir,
+        platform: "linux",
+        execFn: async (file, args) => {
+          calls.push({ file, args });
+        }
+      });
+
+      // Default / code
+      saveConfig({ notifications: "code" }, tempDir);
+      await notifier.notifyOtp("GitHub", "111111");
+      expect(calls[0].args[8]).toBe("Code: 111111");
+
+      // Switch to hidden
+      saveConfig({ notifications: "hidden" }, tempDir);
+      await notifier.notifyOtp("GitHub", "222222");
+      expect(calls[1].args[8]).toBe("New code received");
+      expect(/\d/.test(calls[1].args[8])).toBe(false);
+
+      // Switch to off
+      saveConfig({ notifications: "off" }, tempDir);
+      await notifier.notifyOtp("GitHub", "333333");
+      expect(calls).toHaveLength(2);
+    });
+  });
+
+  describe("Expiry alert rate limiting and behavior", () => {
+    it("shows at most once per 6 hours per account, in code and hidden modes, skipped in off mode", async () => {
+      const calls: Array<{ file: string; args: string[] }> = [];
+      let mockTime = 1_000_000;
+
+      const notifier = new DesktopNotifier({
+        homeDir: tempDir,
+        platform: "linux",
+        now: () => mockTime,
+        execFn: async (file, args) => {
+          calls.push({ file, args });
+        }
+      });
+
+      saveConfig({ notifications: "code" }, tempDir);
+
+      // First alert for account 'personal'
+      await notifier.notifyExpiry("personal");
+      expect(calls).toHaveLength(1);
+      expect(calls[0].args[7]).toBe("AutoOTP: Google access expired for personal");
+      expect(calls[0].args[8]).toBe("Run: autootp login personal");
+
+      // 1 hour later: still within 6 hours -> suppressed
+      mockTime += 1 * 60 * 60 * 1000;
+      await notifier.notifyExpiry("personal");
+      expect(calls).toHaveLength(1);
+
+      // Different account 'work' at same time -> triggers alert
+      await notifier.notifyExpiry("work");
+      expect(calls).toHaveLength(2);
+      expect(calls[1].args[7]).toBe("AutoOTP: Google access expired for work");
+      expect(calls[1].args[8]).toBe("Run: autootp login work");
+
+      // 5 hours later (6 hours total since personal's first alert) -> personal triggers again
+      mockTime += 5 * 60 * 60 * 1000;
+      await notifier.notifyExpiry("personal");
+      expect(calls).toHaveLength(3);
+
+      // In 'hidden' mode, expiry alert still shows
+      saveConfig({ notifications: "hidden" }, tempDir);
+      mockTime += 6 * 60 * 60 * 1000;
+      await notifier.notifyExpiry("personal");
+      expect(calls).toHaveLength(4);
+      expect(calls[3].args[7]).toBe("AutoOTP: Google access expired for personal");
+
+      // In 'off' mode, expiry alert is skipped
+      saveConfig({ notifications: "off" }, tempDir);
+      mockTime += 6 * 60 * 60 * 1000;
+      await notifier.notifyExpiry("personal");
+      expect(calls).toHaveLength(4); // No new call
+    });
+
+    it("sanitizes account alias in expiry alert", async () => {
+      const calls: Array<{ file: string; args: string[] }> = [];
+      const notifier = new DesktopNotifier({
+        homeDir: tempDir,
+        platform: "linux",
+        execFn: async (file, args) => {
+          calls.push({ file, args });
+        }
+      });
+
+      saveConfig({ notifications: "code" }, tempDir);
+      await notifier.notifyExpiry("<b>evil-acc</b>");
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0].args[7]).toBe("AutoOTP: Google access expired for b evil-acc /b");
+      expect(calls[0].args[8]).toBe("Run: autootp login b evil-acc /b");
+    });
   });
 });

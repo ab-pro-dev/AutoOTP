@@ -250,7 +250,8 @@ describe("Configuration (config.json)", () => {
       allowedOrigins: [],
       port: 47821,
       pollMs: 3000,
-      historyRetention: "5m"
+      historyRetention: "5m",
+      notifications: "code"
     });
   });
 
@@ -304,7 +305,8 @@ describe("Configuration (config.json)", () => {
       allowedOrigins: [`chrome-extension://${"b".repeat(32)}`],
       port: 12345,
       pollMs: 1500,
-      historyRetention: "5m" as const
+      historyRetention: "5m" as const,
+      notifications: "hidden" as const
     };
 
     saveConfig(customConfig, tempDir);
@@ -328,6 +330,31 @@ describe("Configuration (config.json)", () => {
           historyRetention: val
         })
       ).toThrow(/Invalid configuration/);
+    }
+  });
+
+  it("validates notifications configuration values", () => {
+    for (const mode of ["off", "hidden", "code"] as const) {
+      expect(() =>
+        validateConfig({
+          allowedOrigins: [],
+          port: 47821,
+          pollMs: 3000,
+          notifications: mode
+        })
+      ).not.toThrow();
+    }
+
+    const invalidNotifications = ["loud", "true", 123, null, true, {}];
+    for (const val of invalidNotifications) {
+      expect(() =>
+        validateConfig({
+          allowedOrigins: [],
+          port: 47821,
+          pollMs: 3000,
+          notifications: val
+        })
+      ).toThrow(/Invalid configuration: notifications must be one of 'off', 'hidden', 'code'/);
     }
   });
 });
