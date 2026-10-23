@@ -7,7 +7,8 @@ import {
   TokenStore,
   saveConfig,
   getOrCreatePairToken,
-  HistoryStore
+  HistoryStore,
+  readStatus
 } from "@autootp/shared";
 import {
   startService,
@@ -257,6 +258,167 @@ describe("AutoOTP Service (packages/service)", () => {
     expect(historyEntries[0].sender).toBe("Service");
     expect(historyEntries[0].alias).toBe("personal");
     historyStore.close();
+
+    // Verify status file is removed on graceful shutdown
+    expect(readStatus(tempDir)).toBeNull();
+  });
+
+  it("updates status file on start, client auth, otp, and removes on shutdown without codes", async () => {
+    const store = new TokenStore(tempDir);
+    await store.set("personal", {
+      refreshToken: "refresh-token-test",
+      email: "personal@example.com",
+      addedAt: Date.now()
+    });
+
+    fs.writeFileSync(
+      path.join(tempDir, "credentials.json"),
+      JSON.stringify({
+        installed: {
+          client_id: "test-client-id",
+          client_secret: "test-client-secret"
+        }
+      })
+    );
+
+    const dummyServer = http.createServer();
+    const testPort = await new Promise<number>((resolve) => {
+      dummyServer.listen(0, "127.0.0.1", () => {
+        const addr = dummyServer.address() as any;
+        dummyServer.close(() => resolve(addr.port));
+      });
+    });
+
+    saveConfig(
+      {
+        allowedOrigins: [validExtensionOrigin],
+        port: testPort,
+        pollMs: 10
+      },
+      tempDir
+    );
+
+    const token = getOrCreatePairToken(tempDir);
+    const controller = new AbortController();
+
+    const sentinelCode = "829104";
+    let wsReady = false;
+    const mockFetch = async (input: RequestInfo | URL): Promise<Response> => {
+      const urlStr = input.toString();
+      if (urlStr.includes("oauth2.googleapis.com/token")) {
+        return new Response(
+          JSON.stringify({ access_token: "mock-access-token", expires_in: 3600 }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (urlStr.includes("/profile")) {
+        return new Response(JSON.stringify({ historyId: "100" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/messages?labelIds=")) {
+        return new Response(JSON.stringify({ messages: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      if (urlStr.includes("/history")) {
+        if (!wsReady) {
+          return new Response(JSON.stringify({ history: [], historyId: "100" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+        return new Response(
+          JSON.stringify({
+            history: [{ messagesAdded: [{ message: { id: "msg-service-status" } }] }],
+            historyId: "101"
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      if (urlStr.includes("/messages/msg-service-status?format=full")) {
+        return new Response(
+          JSON.stringify({
+            id: "msg-service-status",
+            internalDate: String(Date.now()),
+            payload: {
+              headers: [
+                { name: "Subject", value: "Your verification code" },
+                { name: "From", value: "GitHub <security@github.com>" }
+              ],
+              mimeType: "text/plain",
+              body: {
+                data: Buffer.from(`Your code is ${sentinelCode}.`).toString("base64url")
+              }
+            }
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return new Response("Not found", { status: 404 });
+    };
+
+    let statusOnStart: any = null;
+    let statusOnAuth: any = null;
+    let statusOnOtp: any = null;
+
+    await startService({
+      homeDir: tempDir,
+      fetchImpl: mockFetch as typeof fetch,
+      signal: controller.signal,
+      onStarted: async ({ port }) => {
+        // 1. Status on start
+        statusOnStart = readStatus(tempDir);
+
+        const ws = new WebSocket(`ws://127.0.0.1:${port}`, {
+          headers: { Origin: validExtensionOrigin }
+        });
+
+        await waitForOpen(ws);
+        const helloPromise = waitForMessage(ws);
+        ws.send(JSON.stringify({ type: "auth", token }));
+        await helloPromise;
+
+        // 2. Status on client auth
+        statusOnAuth = readStatus(tempDir);
+
+        // 3. Receive OTP
+        const otpMsgPromise = waitForMessage(ws);
+        wsReady = true;
+        await otpMsgPromise;
+
+        statusOnOtp = readStatus(tempDir);
+
+        // Verify status file on disk contains NO sentinel code or tokens
+        const rawStatus = fs.readFileSync(path.join(tempDir, "status.json"), "utf8");
+        expect(rawStatus).not.toContain(sentinelCode);
+        expect(rawStatus).not.toContain(token);
+        expect(rawStatus).not.toContain("code");
+
+        ws.close();
+        controller.abort();
+      }
+    });
+
+    expect(statusOnStart).toBeTruthy();
+    expect(statusOnStart.authedClients).toBe(0);
+    expect(statusOnStart.accounts).toEqual({ personal: "ok" });
+    expect(statusOnStart.lastOtp).toBeNull();
+
+    expect(statusOnAuth).toBeTruthy();
+    expect(statusOnAuth.authedClients).toBe(1);
+
+    expect(statusOnOtp).toBeTruthy();
+    expect(statusOnOtp.lastOtp).toEqual({
+      sender: "GitHub",
+      senderDomain: "github.com",
+      at: expect.any(Number)
+    });
+
+    // 4. Status removed on shutdown
+    expect(readStatus(tempDir)).toBeNull();
   });
 });
 

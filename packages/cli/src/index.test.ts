@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getEventListeners } from "node:events";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { TokenStore, loadConfig, saveConfig, HistoryStore } from "@autootp/shared";
+import { TokenStore, loadConfig, saveConfig, HistoryStore, writeStatus, VERSION } from "@autootp/shared";
 import {
   validateAlias,
   validateExtensionId,
@@ -24,7 +24,8 @@ import {
   configAction,
   configSetAction,
   historyAction,
-  clearAction
+  clearAction,
+  doctorAction
 } from "./commands.js";
 import {
   generateSystemdUnit,
@@ -664,15 +665,7 @@ describe("CLI utilities and commands", () => {
   });
 
   describe("Status Command", () => {
-    it("prints four lines with service, accounts, extensions, and port status", async () => {
-      await pairAction("abcdefghijklmnopabcdefghijklmnop", { homeDir: tempDir });
-      const store = new TokenStore(tempDir);
-      await store.set("work", {
-        refreshToken: "mock-token",
-        email: "work@example.com",
-        addedAt: Date.now()
-      });
-
+    it("prints status with unknown Browser and Accounts when status file is missing", async () => {
       const lines: string[] = [];
       const origLog = console.log;
       console.log = (msg: string) => lines.push(msg);
@@ -688,20 +681,102 @@ describe("CLI utilities and commands", () => {
         console.log = origLog;
       }
 
-      expect(lines).toHaveLength(4);
-      expect(lines[0]).toMatch(/^Service: (running|stopped|not installed)$/);
-      expect(lines[1]).toBe("Accounts: 1");
-      expect(lines[2]).toBe("Paired extensions: 1");
-      expect(lines[3]).toBe("Port 47821: listening");
-
-      // Verify no tokens leaked
-      for (const line of lines) {
-        expect(line).not.toMatch(/mock-token/);
-        expect(line).not.toMatch(/token/i);
-      }
+      expect(lines).toHaveLength(5);
+      expect(lines[0]).toBe("Service: running");
+      expect(lines[1]).toBe("Browser: unknown (service not running?)");
+      expect(lines[2]).toBe("Accounts: unknown (service not running?)");
+      expect(lines[3]).toBe("Latest OTP: none");
+      expect(lines[4]).toBe("Port 47821: listening");
     });
 
-    it("reports stopped and not listening when inactive", async () => {
+    it("prints status with unknown Browser and Accounts when status file is stale (> 90s)", async () => {
+      const now = 1700000000000;
+      writeStatus(
+        {
+          v: 1,
+          pid: 1234,
+          version: "0.1.0",
+          startedAt: now - 200000,
+          updatedAt: now - 95000, // 95s ago > 90s
+          port: 47821,
+          authedClients: 1,
+          accounts: { personal: "ok" },
+          lastOtp: null
+        },
+        tempDir
+      );
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await statusAction({
+          homeDir: tempDir,
+          now: () => now,
+          platform: "linux",
+          execFn: async () => ({ stdout: "active\n", stderr: "" }),
+          checkPortListening: async () => true
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(lines).toContain("Browser: unknown (service not running?)");
+      expect(lines).toContain("Accounts: unknown (service not running?)");
+      expect(lines).toContain("Latest OTP: none");
+    });
+
+    it("prints full status with connected browser, account states, and latest OTP when fresh", async () => {
+      const now = 1700000000000;
+      writeStatus(
+        {
+          v: 1,
+          pid: 1234,
+          version: "0.1.0",
+          startedAt: now - 60000,
+          updatedAt: now - 5000, // 5s ago
+          port: 47821,
+          authedClients: 2,
+          accounts: {
+            personal: "expired",
+            work: "ok"
+          },
+          lastOtp: {
+            sender: "GitHub",
+            senderDomain: "github.com",
+            at: now - 8000
+          }
+        },
+        tempDir
+      );
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await statusAction({
+          homeDir: tempDir,
+          now: () => now,
+          platform: "linux",
+          execFn: async () => ({ stdout: "active\n", stderr: "" }),
+          checkPortListening: async () => true
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(lines[0]).toBe("Service: running");
+      expect(lines[1]).toBe("Browser: connected (2)");
+      expect(lines[2]).toBe("Accounts:");
+      expect(lines[3]).toBe("  personal: run: autootp login personal");
+      expect(lines[4]).toBe("  work: ok");
+      expect(lines[5]).toBe("Latest OTP: GitHub 8s ago");
+      expect(lines[6]).toBe("Port 47821: listening");
+    });
+
+    it("reports stopped and not listening when service is not running", async () => {
       const lines: string[] = [];
       const origLog = console.log;
       console.log = (msg: string) => lines.push(msg);
@@ -721,11 +796,101 @@ describe("CLI utilities and commands", () => {
         console.log = origLog;
       }
 
-      expect(lines).toHaveLength(4);
-      expect(lines[0]).toMatch(/^Service: (stopped|not installed)$/);
-      expect(lines[1]).toBe("Accounts: 0");
-      expect(lines[2]).toBe("Paired extensions: 0");
-      expect(lines[3]).toBe("Port 47821: not listening");
+      expect(lines[0]).toBe("Service: stopped");
+      expect(lines[1]).toBe("Browser: unknown (service not running?)");
+      expect(lines[2]).toBe("Accounts: unknown (service not running?)");
+      expect(lines[3]).toBe("Latest OTP: none");
+      expect(lines[4]).toBe("Port 47821: not listening");
+    });
+
+    it("reports Browser: not connected when fresh status has authedClients = 0", async () => {
+      const now = 1700000000000;
+      writeStatus(
+        {
+          v: 1,
+          pid: 1234,
+          version: "0.1.0",
+          startedAt: now - 30000,
+          updatedAt: now - 2000,
+          port: 47821,
+          authedClients: 0,
+          accounts: {},
+          lastOtp: null
+        },
+        tempDir
+      );
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await statusAction({
+          homeDir: tempDir,
+          now: () => now,
+          platform: "linux",
+          execFn: async () => ({ stdout: "active\n", stderr: "" }),
+          checkPortListening: async () => true
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(lines).toContain("Browser: not connected");
+      expect(lines).toContain("Accounts: none");
+      expect(lines).toContain("Latest OTP: none");
+    });
+
+    it("never leaks secret tokens, pair tokens, or codes in status output", async () => {
+      const now = 1700000000000;
+      const secretToken = "super-secret-refresh-token-xyz";
+      const store = new TokenStore(tempDir);
+      await store.set("personal", {
+        refreshToken: secretToken,
+        email: "user@example.com",
+        addedAt: now
+      });
+      const pairToken = await pairAction("abcdefghijklmnopabcdefghijklmnop", { homeDir: tempDir });
+
+      writeStatus(
+        {
+          v: 1,
+          pid: 1234,
+          version: "0.1.0",
+          startedAt: now - 10000,
+          updatedAt: now - 1000,
+          port: 47821,
+          authedClients: 1,
+          accounts: { personal: "ok" },
+          lastOtp: {
+            sender: "GitHub",
+            senderDomain: "github.com",
+            at: now - 5000
+          }
+        },
+        tempDir
+      );
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await statusAction({
+          homeDir: tempDir,
+          now: () => now,
+          platform: "linux",
+          execFn: async () => ({ stdout: "active\n", stderr: "" }),
+          checkPortListening: async () => true
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      const allOutput = lines.join("\n");
+      expect(allOutput).not.toContain(secretToken);
+      expect(allOutput).not.toContain(pairToken);
+      expect(allOutput).not.toMatch(/\b\d{6,8}\b/);
     });
   });
 
@@ -925,6 +1090,598 @@ describe("CLI utilities and commands", () => {
       const storeAfter = new HistoryStore(tempDir);
       expect(storeAfter.list()).toHaveLength(0);
       storeAfter.close();
+    });
+  });
+
+  describe("Doctor Command", () => {
+    async function setupPassingEnv(homeDir: string) {
+      const now = Date.now();
+      // 1. credentials.json with mode 600
+      const credPath = path.join(homeDir, "credentials.json");
+      fs.writeFileSync(
+        credPath,
+        JSON.stringify({
+          installed: {
+            client_id: "test-client-id",
+            client_secret: "test-client-secret",
+            auth_uri: "https://accounts.google.com/o/oauth2/auth",
+            token_uri: "https://oauth2.googleapis.com/token"
+          }
+        }),
+        { mode: 0o600 }
+      );
+      fs.chmodSync(credPath, 0o600);
+
+      // 2. config.json with allowedOrigins
+      saveConfig(
+        {
+          allowedOrigins: ["chrome-extension://abcdefghijklmnopabcdefghijklmnop"],
+          port: 47821
+        },
+        homeDir
+      );
+
+      // 3. key and tokens.enc in TokenStore
+      const store = new TokenStore(homeDir);
+      await store.set("personal", {
+        refreshToken: "valid-mock-refresh-token",
+        email: "user@example.com",
+        addedAt: now
+      });
+
+      // 4. status.json fresh with authedClients = 1
+      writeStatus(
+        {
+          v: 1,
+          pid: 1234,
+          version: VERSION,
+          startedAt: now - 30000,
+          updatedAt: now - 1000,
+          port: 47821,
+          authedClients: 1,
+          accounts: { personal: "ok" },
+          lastOtp: null
+        },
+        homeDir
+      );
+
+      // 5. systemd unit
+      const unitDir = path.join(homeDir, "systemd");
+      fs.mkdirSync(unitDir, { recursive: true });
+      fs.writeFileSync(path.join(unitDir, "autootp.service"), "[Unit]\nDescription=AutoOTP\n");
+
+      return {
+        unitDir,
+        mockExec: async (file: string, args: string[]) => {
+          if (file === "systemctl" && args.includes("is-active")) {
+            return { stdout: "active\n", stderr: "" };
+          }
+          if (file === "which" && args.includes("notify-send")) {
+            return { stdout: "/usr/bin/notify-send\n", stderr: "" };
+          }
+          return { stdout: "", stderr: "" };
+        },
+        mockFetch: async () => {
+          return new Response(
+            JSON.stringify({
+              access_token: "new-access-token",
+              expires_in: 3600,
+              token_type: "Bearer"
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+      };
+    }
+
+    it("passes all checks when environment is fully configured and exits 0", async () => {
+      const { unitDir, mockExec, mockFetch } = await setupPassingEnv(tempDir);
+      let exitCode: number | undefined;
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await doctorAction({
+          homeDir: tempDir,
+          unitDir,
+          platform: "linux",
+          nodeVersion: "22.14.0",
+          execFn: mockExec,
+          fetchImpl: mockFetch,
+          checkPortListening: async () => true,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(exitCode).toBeUndefined();
+      expect(lines.some((l) => l.startsWith("FAIL"))).toBe(false);
+      expect(lines.some((l) => l.includes("Node.js version 22.14.0"))).toBe(true);
+      expect(lines.some((l) => l.includes("config.json is valid"))).toBe(true);
+      expect(lines.some((l) => l.includes("credentials.json exists with mode 600"))).toBe(true);
+      expect(lines.some((l) => l.includes("key, tokens.enc and history.db have mode 600"))).toBe(true);
+      expect(lines.some((l) => l.includes('Account "personal" refresh token is valid'))).toBe(true);
+      expect(lines.some((l) => l.includes("1 paired extension(s)"))).toBe(true);
+      expect(lines.some((l) => l.includes("Service is installed and running"))).toBe(true);
+      expect(lines.some((l) => l.includes("Port 47821 is listening"))).toBe(true);
+      expect(lines.some((l) => l.includes("Status file is fresh"))).toBe(true);
+      expect(lines.some((l) => l.includes("Browser extension connected (1)"))).toBe(true);
+      expect(lines.some((l) => l.includes("Notification tool available (notify-send)"))).toBe(true);
+      expect(lines[lines.length - 1]).toBe(`Version: ${VERSION}`);
+    });
+
+    it("fails when Node.js version is older than 22.13 and exits 1", async () => {
+      const { unitDir, mockExec, mockFetch } = await setupPassingEnv(tempDir);
+      let exitCode: number | undefined;
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await doctorAction({
+          homeDir: tempDir,
+          unitDir,
+          platform: "linux",
+          nodeVersion: "20.11.0",
+          execFn: mockExec,
+          fetchImpl: mockFetch,
+          checkPortListening: async () => true,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(exitCode).toBe(1);
+      expect(lines.some((l) => l.startsWith("FAIL Node.js version 20.11.0 (requires >= 22.13)"))).toBe(true);
+    });
+
+    it("accepts Node.js versions >= 22.13 with or without leading v", async () => {
+      const { unitDir, mockExec, mockFetch } = await setupPassingEnv(tempDir);
+      let exitCode: number | undefined;
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await doctorAction({
+          homeDir: tempDir,
+          unitDir,
+          platform: "linux",
+          nodeVersion: "v22.13.0",
+          execFn: mockExec,
+          fetchImpl: mockFetch,
+          checkPortListening: async () => true,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(exitCode).toBeUndefined();
+      expect(lines.some((l) => l.startsWith("OK Node.js version v22.13.0"))).toBe(true);
+    });
+
+    it("fails when credentials.json is missing or has incorrect mode", async () => {
+      const { unitDir, mockExec, mockFetch } = await setupPassingEnv(tempDir);
+      // Remove credentials.json
+      fs.unlinkSync(path.join(tempDir, "credentials.json"));
+
+      let exitCode: number | undefined;
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await doctorAction({
+          homeDir: tempDir,
+          unitDir,
+          platform: "linux",
+          nodeVersion: "22.14.0",
+          execFn: mockExec,
+          fetchImpl: mockFetch,
+          checkPortListening: async () => true,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(exitCode).toBe(1);
+      expect(lines.some((l) => l.includes("credentials.json missing"))).toBe(true);
+    });
+
+    it("fails when key, tokens.enc or history.db have insecure permissions", async () => {
+      const { unitDir, mockExec, mockFetch } = await setupPassingEnv(tempDir);
+      const keyPath = path.join(tempDir, "key");
+      fs.chmodSync(keyPath, 0o644);
+
+      let exitCode: number | undefined;
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await doctorAction({
+          homeDir: tempDir,
+          unitDir,
+          platform: "linux",
+          nodeVersion: "22.14.0",
+          execFn: mockExec,
+          fetchImpl: mockFetch,
+          checkPortListening: async () => true,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(exitCode).toBe(1);
+      expect(lines.some((l) => l.includes("Permissions incorrect for: key (0o644), expected 0o600"))).toBe(true);
+    });
+
+    it("fails when no accounts are connected", async () => {
+      const { unitDir, mockExec, mockFetch } = await setupPassingEnv(tempDir);
+      // Remove token store
+      const store = new TokenStore(tempDir);
+      await store.remove("personal");
+
+      let exitCode: number | undefined;
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await doctorAction({
+          homeDir: tempDir,
+          unitDir,
+          platform: "linux",
+          nodeVersion: "22.14.0",
+          execFn: mockExec,
+          fetchImpl: mockFetch,
+          checkPortListening: async () => true,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(exitCode).toBe(1);
+      expect(lines.some((l) => l.includes("No accounts connected. Run: autootp login"))).toBe(true);
+    });
+
+    it("fails with login hint when account refresh returns ReauthRequiredError", async () => {
+      const { unitDir, mockExec } = await setupPassingEnv(tempDir);
+
+      const expiredFetch = async () => {
+        return new Response(
+          JSON.stringify({ error: "invalid_grant", error_description: "Token has been expired or revoked." }),
+          { status: 400, headers: { "Content-Type": "application/json" } }
+        );
+      };
+
+      let exitCode: number | undefined;
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await doctorAction({
+          homeDir: tempDir,
+          unitDir,
+          platform: "linux",
+          nodeVersion: "22.14.0",
+          execFn: mockExec,
+          fetchImpl: expiredFetch,
+          checkPortListening: async () => true,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(exitCode).toBe(1);
+      expect(lines.some((l) => l.includes('FAIL Account "personal" expired: run autootp login personal'))).toBe(true);
+    });
+
+    it("warns and does not fail on account refresh network error", async () => {
+      const { unitDir, mockExec } = await setupPassingEnv(tempDir);
+
+      const networkErrorFetch = async () => {
+        throw new TypeError("fetch failed: ENOTFOUND oauth2.googleapis.com");
+      };
+
+      let exitCode: number | undefined;
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await doctorAction({
+          homeDir: tempDir,
+          unitDir,
+          platform: "linux",
+          nodeVersion: "22.14.0",
+          execFn: mockExec,
+          fetchImpl: networkErrorFetch,
+          checkPortListening: async () => true,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      // WARN on network error does not trigger exit(1)
+      expect(exitCode).toBeUndefined();
+      expect(lines.some((l) => l.includes('WARN Account "personal" refresh network error'))).toBe(true);
+    });
+
+    it("fails when no extensions are paired", async () => {
+      const { unitDir, mockExec, mockFetch } = await setupPassingEnv(tempDir);
+      saveConfig({ allowedOrigins: [] }, tempDir);
+
+      let exitCode: number | undefined;
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await doctorAction({
+          homeDir: tempDir,
+          unitDir,
+          platform: "linux",
+          nodeVersion: "22.14.0",
+          execFn: mockExec,
+          fetchImpl: mockFetch,
+          checkPortListening: async () => true,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(exitCode).toBe(1);
+      expect(lines.some((l) => l.includes("No extension paired. Run: autootp pair <extensionId>"))).toBe(true);
+    });
+
+    it("fails when service unit is missing or not active", async () => {
+      const { unitDir, mockFetch } = await setupPassingEnv(tempDir);
+
+      // Mock execFn where service is stopped
+      const inactiveExec: ExecFunction = async (file, args) => {
+        if (file === "systemctl" && args.includes("is-active")) {
+          const err = new Error("inactive");
+          (err as any).stdout = "inactive\n";
+          throw err;
+        }
+        if (file === "which" && args.includes("notify-send")) {
+          return { stdout: "/usr/bin/notify-send\n", stderr: "" };
+        }
+        return { stdout: "", stderr: "" };
+      };
+
+      let exitCode: number | undefined;
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await doctorAction({
+          homeDir: tempDir,
+          unitDir,
+          platform: "linux",
+          nodeVersion: "22.14.0",
+          execFn: inactiveExec,
+          fetchImpl: mockFetch,
+          checkPortListening: async () => true,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(exitCode).toBe(1);
+      expect(lines.some((l) => l.includes("Service installed but not running"))).toBe(true);
+    });
+
+    it("fails when port is not listening", async () => {
+      const { unitDir, mockExec, mockFetch } = await setupPassingEnv(tempDir);
+
+      let exitCode: number | undefined;
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await doctorAction({
+          homeDir: tempDir,
+          unitDir,
+          platform: "linux",
+          nodeVersion: "22.14.0",
+          execFn: mockExec,
+          fetchImpl: mockFetch,
+          checkPortListening: async () => false,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(exitCode).toBe(1);
+      expect(lines.some((l) => l.includes("Port 47821 is not listening"))).toBe(true);
+    });
+
+    it("fails when status file is missing or stale", async () => {
+      const { unitDir, mockExec, mockFetch } = await setupPassingEnv(tempDir);
+      // Remove status.json
+      fs.unlinkSync(path.join(tempDir, "status.json"));
+
+      let exitCode: number | undefined;
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await doctorAction({
+          homeDir: tempDir,
+          unitDir,
+          platform: "linux",
+          nodeVersion: "22.14.0",
+          execFn: mockExec,
+          fetchImpl: mockFetch,
+          checkPortListening: async () => true,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(exitCode).toBe(1);
+      expect(lines.some((l) => l.includes("Status file missing (service not running?)"))).toBe(true);
+    });
+
+    it("warns (not fails) when browser extension is not connected", async () => {
+      const { unitDir, mockExec, mockFetch } = await setupPassingEnv(tempDir);
+      // Update status to authedClients = 0
+      writeStatus(
+        {
+          v: 1,
+          pid: 1234,
+          version: VERSION,
+          startedAt: Date.now() - 30000,
+          updatedAt: Date.now() - 1000,
+          port: 47821,
+          authedClients: 0,
+          accounts: { personal: "ok" },
+          lastOtp: null
+        },
+        tempDir
+      );
+
+      let exitCode: number | undefined;
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await doctorAction({
+          homeDir: tempDir,
+          unitDir,
+          platform: "linux",
+          nodeVersion: "22.14.0",
+          execFn: mockExec,
+          fetchImpl: mockFetch,
+          checkPortListening: async () => true,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(exitCode).toBeUndefined();
+      expect(lines.some((l) => l.includes("WARN Browser extension is not connected"))).toBe(true);
+    });
+
+    it("warns (not fails) when notification tool is missing", async () => {
+      const { unitDir, mockFetch } = await setupPassingEnv(tempDir);
+
+      const noNotifyExec: ExecFunction = async (file, args) => {
+        if (file === "systemctl" && args.includes("is-active")) {
+          return { stdout: "active\n", stderr: "" };
+        }
+        if (file === "which" && args.includes("notify-send")) {
+          throw new Error("not found");
+        }
+        return { stdout: "", stderr: "" };
+      };
+
+      let exitCode: number | undefined;
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await doctorAction({
+          homeDir: tempDir,
+          unitDir,
+          platform: "linux",
+          nodeVersion: "22.14.0",
+          execFn: noNotifyExec,
+          fetchImpl: mockFetch,
+          checkPortListening: async () => true,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(exitCode).toBeUndefined();
+      expect(lines.some((l) => l.includes("WARN Notification tool missing (notify-send not found)"))).toBe(true);
+    });
+
+    it("never writes tokens, pair tokens, or OTP codes in doctor output", async () => {
+      const { unitDir, mockExec, mockFetch } = await setupPassingEnv(tempDir);
+      const secretToken = "super-secret-doctor-token-12345";
+      const store = new TokenStore(tempDir);
+      await store.set("personal", {
+        refreshToken: secretToken,
+        email: "user@example.com",
+        addedAt: Date.now()
+      });
+      const pairToken = await pairAction("abcdefghijklmnopabcdefghijklmnop", { homeDir: tempDir });
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await doctorAction({
+          homeDir: tempDir,
+          unitDir,
+          platform: "linux",
+          nodeVersion: "22.14.0",
+          execFn: mockExec,
+          fetchImpl: mockFetch,
+          checkPortListening: async () => true
+        });
+      } finally {
+        console.log = origLog;
+      }
+
+      const allOutput = lines.join("\n");
+      expect(allOutput).not.toContain(secretToken);
+      expect(allOutput).not.toContain(pairToken);
+      expect(allOutput).not.toMatch(/\b\d{6,8}\b/);
     });
   });
 });

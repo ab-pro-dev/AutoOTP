@@ -367,4 +367,47 @@ describe("Local OTP WebSocket Server (packages/websocket)", () => {
       await server.close();
     }
   });
+
+  it("fires onClientCountChange callback on authentication and disconnect", async () => {
+    const counts: number[] = [];
+    const server = await createOtpServer({
+      port: 0,
+      token: "test-callback-token",
+      allowedOrigins: ["chrome-extension://allowed-id"],
+      onClientCountChange: (count) => {
+        counts.push(count);
+      }
+    });
+
+    const client = new WebSocket(`ws://127.0.0.1:${server.port}`, {
+      headers: { Origin: "chrome-extension://allowed-id" }
+    });
+
+    try {
+      await waitForOpen(client);
+      // Unauthenticated client does not change count yet
+      expect(counts).toEqual([]);
+
+      client.send(JSON.stringify({ type: "auth", token: "test-callback-token" }));
+      await waitForMessage(client);
+
+      // Authenticated -> count 1
+      expect(counts).toEqual([1]);
+
+      // Disconnect
+      client.close();
+      await new Promise<void>((resolve) => {
+        const check = setInterval(() => {
+          if (counts.includes(0)) {
+            clearInterval(check);
+            resolve();
+          }
+        }, 10);
+      });
+
+      expect(counts).toEqual([1, 0]);
+    } finally {
+      await server.close();
+    }
+  });
 });

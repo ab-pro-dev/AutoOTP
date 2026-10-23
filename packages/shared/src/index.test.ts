@@ -15,7 +15,12 @@ import {
   validateConfig,
   DEFAULT_CONFIG,
   HistoryStore,
-  ensureSqliteSupported
+  ensureSqliteSupported,
+  writeStatus,
+  readStatus,
+  deleteStatus,
+  isStatusFresh,
+  AutoOtpStatus
 } from "./index.js";
 
 describe("VERSION", () => {
@@ -598,6 +603,169 @@ describe("OTP History Store (HistoryStore)", () => {
     expect(count).toBe(2);
     expect(store.list()).toHaveLength(0);
     store.close();
+  });
+});
+
+describe("AutoOTP Status Helpers (status.json)", () => {
+  let tempDir: string;
+  const originalHome = process.env.AUTOOTP_HOME;
+
+  beforeEach(() => {
+    const tmpBase = process.env.TMPDIR || process.env.TEMP || "/tmp";
+    tempDir = fs.mkdtempSync(path.join(tmpBase, "autootp-status-test-"));
+    process.env.AUTOOTP_HOME = tempDir;
+  });
+
+  afterEach(() => {
+    if (originalHome !== undefined) {
+      process.env.AUTOOTP_HOME = originalHome;
+    } else {
+      delete process.env.AUTOOTP_HOME;
+    }
+    if (fs.existsSync(tempDir)) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("writes and reads status with exact schema and mode 600", () => {
+    const now = Date.now();
+    const status: AutoOtpStatus = {
+      v: 1,
+      pid: 12345,
+      version: VERSION,
+      startedAt: now - 10000,
+      updatedAt: now,
+      port: 47821,
+      authedClients: 2,
+      accounts: {
+        personal: "ok",
+        work: "expired"
+      },
+      lastOtp: {
+        sender: "GitHub",
+        senderDomain: "github.com",
+        at: now - 5000
+      }
+    };
+
+    writeStatus(status, tempDir);
+
+    const loaded = readStatus(tempDir);
+    expect(loaded).toEqual(status);
+
+    if (process.platform !== "win32") {
+      const stat = fs.statSync(path.join(tempDir, "status.json"));
+      expect((stat.mode & 0o777).toString(8)).toBe("600");
+    }
+
+    // Verify raw keys order
+    const raw = JSON.parse(fs.readFileSync(path.join(tempDir, "status.json"), "utf8"));
+    expect(Object.keys(raw)).toEqual([
+      "v",
+      "pid",
+      "version",
+      "startedAt",
+      "updatedAt",
+      "port",
+      "authedClients",
+      "accounts",
+      "lastOtp"
+    ]);
+  });
+
+  it("never allows code or token properties to be written", () => {
+    const now = Date.now();
+    const badStatusWithCode = {
+      v: 1 as const,
+      pid: 1234,
+      version: VERSION,
+      startedAt: now,
+      updatedAt: now,
+      port: 47821,
+      authedClients: 1,
+      accounts: {},
+      lastOtp: {
+        sender: "Test",
+        senderDomain: null,
+        at: now,
+        code: "SENTINEL_CODE_123"
+      } as any
+    };
+
+    expect(() => writeStatus(badStatusWithCode, tempDir)).toThrow(/status file must NEVER contain an OTP code/);
+
+    const badStatusWithTopLevelCode = {
+      v: 1 as const,
+      pid: 1234,
+      version: VERSION,
+      startedAt: now,
+      updatedAt: now,
+      port: 47821,
+      authedClients: 1,
+      accounts: {},
+      lastOtp: null,
+      code: "SENTINEL_CODE_456"
+    } as any;
+
+    expect(() => writeStatus(badStatusWithTopLevelCode, tempDir)).toThrow(/status file must NEVER contain an OTP code/);
+
+    const badStatusWithToken = {
+      v: 1 as const,
+      pid: 1234,
+      version: VERSION,
+      startedAt: now,
+      updatedAt: now,
+      port: 47821,
+      authedClients: 1,
+      accounts: {},
+      lastOtp: null,
+      token: "SENTINEL_TOKEN"
+    } as any;
+
+    expect(() => writeStatus(badStatusWithToken, tempDir)).toThrow(/status file must NEVER contain a token/);
+  });
+
+  it("deletes status file on deleteStatus", () => {
+    const status: AutoOtpStatus = {
+      v: 1,
+      pid: 100,
+      version: VERSION,
+      startedAt: Date.now(),
+      updatedAt: Date.now(),
+      port: 47821,
+      authedClients: 0,
+      accounts: {},
+      lastOtp: null
+    };
+    writeStatus(status, tempDir);
+    expect(readStatus(tempDir)).not.toBeNull();
+
+    deleteStatus(tempDir);
+    expect(readStatus(tempDir)).toBeNull();
+  });
+
+  it("checks status freshness against 90 seconds limit", () => {
+    const now = 1_000_000;
+    const freshStatus: AutoOtpStatus = {
+      v: 1,
+      pid: 100,
+      version: VERSION,
+      startedAt: now - 30000,
+      updatedAt: now - 30000, // 30s ago -> fresh
+      port: 47821,
+      authedClients: 1,
+      accounts: {},
+      lastOtp: null
+    };
+    expect(isStatusFresh(freshStatus, 90000, now)).toBe(true);
+
+    const staleStatus: AutoOtpStatus = {
+      ...freshStatus,
+      updatedAt: now - 95000 // 95s ago -> stale
+    };
+    expect(isStatusFresh(staleStatus, 90000, now)).toBe(false);
+
+    expect(isStatusFresh(null, 90000, now)).toBe(false);
   });
 });
 

@@ -20,6 +20,7 @@ export interface WatchAccountOptions {
   accountId: string;
   onOtp: (otp: OtpNotification) => void | Promise<void>;
   onError?: (err: Error) => void | Promise<void>;
+  onPollSuccess?: (accountId: string) => void | Promise<void>;
   pollMs?: number;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
@@ -262,6 +263,7 @@ export async function watchAccount(options: WatchAccountOptions): Promise<void> 
     accountId,
     onOtp,
     onError,
+    onPollSuccess,
     pollMs = 3000,
     signal,
     fetchImpl = globalThis.fetch,
@@ -500,6 +502,9 @@ export async function watchAccount(options: WatchAccountOptions): Promise<void> 
         startHistoryId = initialHistoryId;
         await runRecoveryList(token);
         backoffMs = initialBackoffMs;
+        try {
+          await onPollSuccess?.(accountId);
+        } catch {}
         await sleep(pollMs, signal);
         continue;
       }
@@ -603,6 +608,9 @@ export async function watchAccount(options: WatchAccountOptions): Promise<void> 
         }
         await runRecoveryList(token);
         backoffMs = initialBackoffMs;
+        try {
+          await onPollSuccess?.(accountId);
+        } catch {}
         await sleep(pollMs, signal);
         continue;
       }
@@ -622,6 +630,10 @@ export async function watchAccount(options: WatchAccountOptions): Promise<void> 
         if (seenSet.has(msgId)) continue;
         await processMessage(msgId, token);
       }
+
+      try {
+        await onPollSuccess?.(accountId);
+      } catch {}
 
       await sleep(pollMs, signal);
     } catch (err: unknown) {

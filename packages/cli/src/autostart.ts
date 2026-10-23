@@ -9,11 +9,14 @@ import {
   getHomeDir,
   loadConfig,
   TokenStore,
-  ConfigurationError
+  ConfigurationError,
+  readStatus,
+  isStatusFresh
 } from "@autootp/shared";
 import { CommandContext } from "./commands.js";
+import { formatAge } from "./utils.js";
 
-const defaultExecFile = promisify(execFile);
+export const defaultExecFile = promisify(execFile);
 
 export type ExecFunction = (
   file: string,
@@ -32,6 +35,7 @@ export interface AutoStartContext extends CommandContext {
   checkPortListening?: (port: number) => Promise<boolean>;
   unitDir?: string;
   launchAgentsDir?: string;
+  now?: () => number;
 }
 
 /**
@@ -339,6 +343,7 @@ export async function statusAction(context: AutoStartContext = {}): Promise<void
   const homeDir = context.homeDir ?? getHomeDir();
   const platform = context.platform ?? process.platform;
   const execFn = context.execFn ?? defaultExecFile;
+  const now = context.now ? context.now() : Date.now();
 
   let serviceStatus = "not installed";
 
@@ -380,20 +385,61 @@ export async function statusAction(context: AutoStartContext = {}): Promise<void
     }
   }
 
-  const store = new TokenStore(homeDir);
-  const aliases = await store.list();
-  const accountsCount = aliases.length;
+  const status = readStatus(homeDir);
+  const isFresh = isStatusFresh(status, 90000, now);
 
   const config = loadConfig(homeDir);
-  const pairedCount = (config.allowedOrigins || []).length;
-
   const port = config.port || 47821;
   const isListening = context.checkPortListening
     ? await context.checkPortListening(port)
     : await checkPortListening(port);
 
+  // Line 1: Service (as now)
   console.log(`Service: ${serviceStatus}`);
-  console.log(`Accounts: ${accountsCount}`);
-  console.log(`Paired extensions: ${pairedCount}`);
+
+  // Line 2: Browser
+  if (!isFresh) {
+    console.log("Browser: unknown (service not running?)");
+  } else if (status!.authedClients > 0) {
+    console.log(`Browser: connected (${status!.authedClients})`);
+  } else {
+    console.log("Browser: not connected");
+  }
+
+  // Line 3: Accounts
+  if (!isFresh) {
+    console.log("Accounts: unknown (service not running?)");
+  } else {
+    const statusAccounts = status!.accounts || {};
+    const store = new TokenStore(homeDir);
+    let storedAliases: string[] = [];
+    try {
+      storedAliases = await store.list();
+    } catch {}
+    const allAliases = Array.from(new Set([...storedAliases, ...Object.keys(statusAccounts)])).sort();
+
+    if (allAliases.length === 0) {
+      console.log("Accounts: none");
+    } else {
+      console.log("Accounts:");
+      for (const alias of allAliases) {
+        const state = statusAccounts[alias] ?? "ok";
+        if (state === "expired") {
+          console.log(`  ${alias}: run: autootp login ${alias}`);
+        } else {
+          console.log(`  ${alias}: ${state}`);
+        }
+      }
+    }
+  }
+
+  // Line 4: Latest OTP
+  if (isFresh && status?.lastOtp) {
+    console.log(`Latest OTP: ${status.lastOtp.sender} ${formatAge(status.lastOtp.at, now)}`);
+  } else {
+    console.log("Latest OTP: none");
+  }
+
+  // Line 5: Port
   console.log(`Port ${port}: ${isListening ? "listening" : "not listening"}`);
 }

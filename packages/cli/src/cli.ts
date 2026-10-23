@@ -14,6 +14,7 @@ import {
   configSetAction,
   historyAction,
   clearAction,
+  doctorAction,
   CommandContext
 } from "./commands.js";
 
@@ -116,6 +117,13 @@ export function createProgram(context: CommandContext = {}): Command {
     .description("Clear all OTP history")
     .action(async () => {
       await clearAction(context);
+    });
+
+  program
+    .command("doctor")
+    .description("Check AutoOTP system health and prerequisites")
+    .action(async () => {
+      await doctorAction(context);
     });
 
   return program;

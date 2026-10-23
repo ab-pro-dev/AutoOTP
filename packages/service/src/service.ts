@@ -8,7 +8,12 @@ import {
   formatOtpNotification,
   ConfigurationError,
   AutoOtpConfig,
-  HistoryStore
+  HistoryStore,
+  writeStatus,
+  deleteStatus,
+  AccountStatus,
+  StatusLastOtp,
+  VERSION
 } from "@autootp/shared";
 import { watchAccount, ReauthRequiredError } from "@autootp/gmail";
 import { createOtpServer, OtpServer } from "@autootp/websocket";
@@ -118,18 +123,55 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
     purgeInterval.unref();
   }
 
+  const startedAt = Date.now();
+  const accountsStatus: Record<string, AccountStatus> = {};
+  const failureCounts = new Map<string, number>();
+  for (const alias of aliases) {
+    accountsStatus[alias] = "ok";
+  }
+  let lastOtp: StatusLastOtp | null = null;
+  let authedClients = 0;
+
   let server: OtpServer;
+
+  const syncStatus = () => {
+    try {
+      writeStatus(
+        {
+          v: 1,
+          pid: process.pid,
+          version: VERSION,
+          startedAt,
+          updatedAt: Date.now(),
+          port: server?.port ?? config.port,
+          authedClients,
+          accounts: { ...accountsStatus },
+          lastOtp
+        },
+        homeDir
+      );
+    } catch {
+      // Never crash on status write
+    }
+  };
+
   try {
     server = await createOtpServer({
       port: config.port,
       token,
-      allowedOrigins: config.allowedOrigins
+      allowedOrigins: config.allowedOrigins,
+      onClientCountChange: (count) => {
+        authedClients = count;
+        syncStatus();
+      }
     });
+    syncStatus();
   } catch (err: unknown) {
     clearInterval(purgeInterval);
     try {
       historyStore?.close();
     } catch {}
+    deleteStatus(homeDir);
     process.removeListener("SIGINT", onSigint);
     if (options.signal) {
       options.signal.removeEventListener("abort", onParentAbort);
@@ -149,6 +191,13 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
     throw err;
   }
 
+  const heartbeatInterval = setInterval(() => {
+    syncStatus();
+  }, 30000);
+  if (heartbeatInterval.unref) {
+    heartbeatInterval.unref();
+  }
+
   const watcherPromises: Promise<void>[] = [];
   if (!options.noWatch) {
     for (const alias of aliases) {
@@ -159,6 +208,13 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
           pollMs: config.pollMs,
           signal,
           fetchImpl: options.fetchImpl,
+          onPollSuccess: () => {
+            failureCounts.set(alias, 0);
+            if (accountsStatus[alias] !== "ok") {
+              accountsStatus[alias] = "ok";
+              syncStatus();
+            }
+          },
           onOtp: async (otp) => {
             // Broadcast to authenticated WebSocket clients
             server.broadcastOtp({
@@ -179,6 +235,18 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
                 receivedAt: otp.receivedAt
               })
             );
+
+            // Update status on OTP
+            lastOtp = {
+              sender: otp.sender,
+              senderDomain: otp.senderDomain ?? null,
+              at: otp.receivedAt ?? Date.now()
+            };
+            failureCounts.set(alias, 0);
+            if (accountsStatus[alias] !== "ok") {
+              accountsStatus[alias] = "ok";
+            }
+            syncStatus();
 
             // Send desktop notification
             try {
@@ -211,10 +279,19 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
               console.log(
                 `${alias}: Google access expired. Run: autootp login ${alias} again.`
               );
+              accountsStatus[alias] = "expired";
+              syncStatus();
               try {
                 await notifier.notifyExpiry(alias);
               } catch {
                 // Failures of the notification command are caught and ignored
+              }
+            } else {
+              const count = (failureCounts.get(alias) ?? 0) + 1;
+              failureCounts.set(alias, count);
+              if (count >= 3 && accountsStatus[alias] !== "error") {
+                accountsStatus[alias] = "error";
+                syncStatus();
               }
             }
           }
@@ -251,6 +328,8 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
     await Promise.all([abortPromise, ...watcherPromises]);
   } finally {
     clearInterval(purgeInterval);
+    clearInterval(heartbeatInterval);
+    deleteStatus(homeDir);
     try {
       historyStore?.close();
     } catch {}

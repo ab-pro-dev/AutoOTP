@@ -10,6 +10,7 @@ export interface CreateOtpServerOptions {
   allowNoOrigin?: boolean;
   authTimeoutMs?: number;
   pingIntervalMs?: number;
+  onClientCountChange?: (count: number) => void;
 }
 
 export interface OtpBroadcastPayload {
@@ -77,6 +78,10 @@ export async function createOtpServer(
   const activeSockets = new Set<WebSocket>();
   const authenticatedSockets = new Set<WebSocket>();
 
+  const notifyClientCount = () => {
+    options.onClientCountChange?.(authenticatedSockets.size);
+  };
+
   let boundPort = port;
 
   httpServer.on("upgrade", (req, socket, head) => {
@@ -129,13 +134,17 @@ export async function createOtpServer(
     ws.on("error", () => {
       clearTimeout(authTimer);
       activeSockets.delete(ws);
-      authenticatedSockets.delete(ws);
+      if (authenticatedSockets.delete(ws)) {
+        notifyClientCount();
+      }
     });
 
     ws.on("close", () => {
       clearTimeout(authTimer);
       activeSockets.delete(ws);
-      authenticatedSockets.delete(ws);
+      if (authenticatedSockets.delete(ws)) {
+        notifyClientCount();
+      }
     });
 
     ws.on("message", (raw: WebSocket.RawData) => {
@@ -184,6 +193,7 @@ export async function createOtpServer(
         authenticated = true;
         clearTimeout(authTimer);
         authenticatedSockets.add(ws);
+        notifyClientCount();
         ws.send(JSON.stringify({ type: "hello", version: 1 }));
         return;
       }
@@ -248,8 +258,12 @@ export async function createOtpServer(
     for (const client of activeSockets) {
       client.terminate();
     }
+    const hadAuthed = authenticatedSockets.size > 0;
     activeSockets.clear();
     authenticatedSockets.clear();
+    if (hadAuthed) {
+      notifyClientCount();
+    }
 
     await new Promise<void>((resolve) => {
       wss.close(() => resolve());
