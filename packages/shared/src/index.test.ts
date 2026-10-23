@@ -20,7 +20,8 @@ import {
   readStatus,
   deleteStatus,
   isStatusFresh,
-  AutoOtpStatus
+  AutoOtpStatus,
+  formatOtpNotification
 } from "./index.js";
 
 describe("VERSION", () => {
@@ -766,6 +767,60 @@ describe("AutoOTP Status Helpers (status.json)", () => {
     expect(isStatusFresh(staleStatus, 90000, now)).toBe(false);
 
     expect(isStatusFresh(null, 90000, now)).toBe(false);
+  });
+});
+
+describe("formatOtpNotification (packages/shared)", () => {
+  it("appends [verified] when senderVerified is true", () => {
+    const output = formatOtpNotification({
+      sender: "GitHub",
+      account: "personal",
+      code: "123456",
+      senderVerified: true,
+      maskCode: false
+    });
+    expect(output).toMatch(/GitHub \(personal\) -> 123456 \[verified\]$/);
+  });
+
+  it("appends [unverified] when senderVerified is false", () => {
+    const output = formatOtpNotification({
+      sender: "GitHub",
+      account: "personal",
+      code: "123456",
+      senderVerified: false,
+      maskCode: false
+    });
+    expect(output).toMatch(/GitHub \(personal\) -> 123456 \[unverified\]$/);
+  });
+
+  it("appends [unverified] when senderVerified is omitted or undefined", () => {
+    const output = formatOtpNotification({
+      sender: "GitHub",
+      account: "personal",
+      code: "123456",
+      maskCode: false
+    });
+    expect(output).toMatch(/GitHub \(personal\) -> 123456 \[unverified\]$/);
+  });
+
+  it("includes [verified] or [unverified] even in non-TTY masked mode", () => {
+    const verifiedMasked = formatOtpNotification({
+      sender: "GitHub",
+      account: "personal",
+      code: "123456",
+      senderVerified: true,
+      maskCode: true
+    });
+    expect(verifiedMasked).toMatch(/GitHub \(personal\) -> \*\*\*\*\*\* \[verified\]$/);
+
+    const unverifiedMasked = formatOtpNotification({
+      sender: "GitHub",
+      account: "personal",
+      code: "123456",
+      senderVerified: false,
+      maskCode: true
+    });
+    expect(unverifiedMasked).toMatch(/GitHub \(personal\) -> \*\*\*\*\*\* \[unverified\]$/);
   });
 });
 

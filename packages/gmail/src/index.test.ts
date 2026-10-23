@@ -15,6 +15,7 @@ import {
   htmlToText,
   parseSender,
   parseSenderDomain,
+  isSenderVerified,
   OtpNotification
 } from "./index.js";
 
@@ -1354,6 +1355,226 @@ describe("Gmail Watcher (packages/gmail)", () => {
     });
   });
 
-});
+  describe("isSenderVerified", () => {
+    const ok =
+      "mx.google.com; dkim=pass header.i=@github.com; spf=pass smtp.mailfrom=noreply@github.com; dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=github.com";
+    const H = (v: string) => [{ name: "Authentication-Results", value: v }];
 
+    it("verifies aligned dmarc pass with mx.google.com", () => {
+      expect(isSenderVerified(H(ok), "github.com")).toBe(true);
+    });
+
+    it("returns false if senderDomain is null or empty", () => {
+      expect(isSenderVerified(H(ok), null)).toBe(false);
+      expect(isSenderVerified(H(ok), "")).toBe(false);
+      expect(isSenderVerified(H(ok), "   ")).toBe(false);
+    });
+
+    it("returns false if there is more than one From header", () => {
+      const headers = [
+        { name: "From", value: "support@github.com" },
+        { name: "From", value: "attacker@evil.com" },
+        { name: "Authentication-Results", value: ok }
+      ];
+      expect(isSenderVerified(headers, "github.com")).toBe(false);
+    });
+
+    it("accepts a single From header", () => {
+      const headers = [
+        { name: "From", value: "support@github.com" },
+        { name: "Authentication-Results", value: ok }
+      ];
+      expect(isSenderVerified(headers, "github.com")).toBe(true);
+    });
+
+    it("returns false if there is no Authentication-Results header", () => {
+      const headers = [{ name: "From", value: "support@github.com" }];
+      expect(isSenderVerified(headers, "github.com")).toBe(false);
+    });
+
+    it("returns false if first token before first ';' does not equal mx.google.com", () => {
+      expect(
+        isSenderVerified(
+          H("evil.example; dmarc=pass header.from=github.com"),
+          "github.com"
+        )
+      ).toBe(false);
+      expect(
+        isSenderVerified(
+          H("mx.google.com.attacker.com; dmarc=pass header.from=github.com"),
+          "github.com"
+        )
+      ).toBe(false);
+    });
+
+    it("uses only the FIRST Authentication-Results header in message order", () => {
+      // 1st fails, 2nd passes -> must be false
+      const forgedLower = [
+        {
+          name: "Authentication-Results",
+          value: "mx.google.com; dmarc=fail header.from=github.com"
+        },
+        { name: "Authentication-Results", value: ok }
+      ];
+      expect(isSenderVerified(forgedLower, "github.com")).toBe(false);
+
+      // 1st passes, 2nd fails -> must be true
+      const forgedHigher = [
+        { name: "Authentication-Results", value: ok },
+        {
+          name: "Authentication-Results",
+          value: "mx.google.com; dmarc=fail header.from=github.com"
+        }
+      ];
+      expect(isSenderVerified(forgedHigher, "github.com")).toBe(true);
+    });
+
+    it("removes parenthetical comments (including nested ones) BEFORE parsing", () => {
+      // Comment spoofing attempt
+      const commentSpoof = H(
+        "mx.google.com; spf=pass (google.com: note dmarc=pass header.from=github.com); dmarc=fail header.from=github.com"
+      );
+      expect(isSenderVerified(commentSpoof, "github.com")).toBe(false);
+
+      // Nested comments inside passing dmarc
+      const nestedComments = H(
+        "mx.google.com; dmarc=pass (nested (double (triple) note)) header.from=github.com"
+      );
+      expect(isSenderVerified(nestedComments, "github.com")).toBe(true);
+
+      // Malformed comments (unmatched opening paren)
+      const unclosedComment = H(
+        "mx.google.com; dmarc=pass (unclosed header.from=github.com"
+      );
+      expect(isSenderVerified(unclosedComment, "github.com")).toBe(false);
+    });
+
+    it("is case-insensitive for mx.google.com, method, result, header.from, and senderDomain", () => {
+      const mixedCase = H(
+        "MX.GOOGLE.COM; DMARC=PASS (dis=NONE) HEADER.FROM=GitHub.Com"
+      );
+      expect(isSenderVerified(mixedCase, "github.com")).toBe(true);
+      expect(isSenderVerified(mixedCase, "GITHUB.COM")).toBe(true);
+      expect(isSenderVerified(mixedCase, "GitHub.com")).toBe(true);
+    });
+
+    it("accepts quoted header.from", () => {
+      const quoted = H(
+        'mx.google.com; dmarc=pass header.from="github.com"'
+      );
+      expect(isSenderVerified(quoted, "github.com")).toBe(true);
+    });
+
+    it("returns false when dmarc fails or is not pass", () => {
+      expect(
+        isSenderVerified(
+          H("mx.google.com; dmarc=fail header.from=github.com"),
+          "github.com"
+        )
+      ).toBe(false);
+      expect(
+        isSenderVerified(
+          H("mx.google.com; dmarc=none header.from=github.com"),
+          "github.com"
+        )
+      ).toBe(false);
+      expect(
+        isSenderVerified(
+          H("mx.google.com; dmarc=temperror header.from=github.com"),
+          "github.com"
+        )
+      ).toBe(false);
+    });
+
+    it("returns false when header.from mismatches senderDomain", () => {
+      expect(
+        isSenderVerified(
+          H("mx.google.com; dmarc=pass header.from=evil.com"),
+          "github.com"
+        )
+      ).toBe(false);
+    });
+
+    it("returns false when dmarc segment is missing header.from", () => {
+      expect(
+        isSenderVerified(
+          H("mx.google.com; dmarc=pass"),
+          "github.com"
+        )
+      ).toBe(false);
+    });
+
+    it("returns false when a segment is malformed (no method=result)", () => {
+      expect(
+        isSenderVerified(
+          H("mx.google.com; malformed-segment-without-equals; dmarc=pass header.from=github.com"),
+          "github.com"
+        )
+      ).toBe(false);
+    });
+
+    it("watcher adds senderVerified boolean to every OTP notification it emits", async () => {
+      const store = new TokenStore(tempDir);
+      await store.set("acc-verified-test", {
+        refreshToken: "token-verified",
+        email: "verified@example.com",
+        addedAt: Date.now()
+      });
+
+      let receivedOtp: OtpNotification | undefined;
+      const controller = new AbortController();
+
+      const mockFetch = async (input: RequestInfo | URL) => {
+        const url = input.toString();
+        if (url.includes("oauth2.googleapis.com/token")) {
+          return new Response(
+            JSON.stringify({ access_token: "mock-token", expires_in: 3600 }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+        if (url.includes("/profile")) {
+          return new Response(JSON.stringify({ historyId: "100" }), { status: 200 });
+        }
+        if (url.includes("/messages?labelIds=")) {
+          return new Response(JSON.stringify({ messages: [{ id: "m-verified" }] }), { status: 200 });
+        }
+        if (url.includes("/messages/m-verified")) {
+          return new Response(
+            JSON.stringify({
+              id: "m-verified",
+              internalDate: String(Date.now()),
+              payload: {
+                headers: [
+                  { name: "From", value: "GitHub <noreply@github.com>" },
+                  { name: "Subject", value: "Your verification code" },
+                  { name: "Authentication-Results", value: ok }
+                ],
+                body: { data: Buffer.from("Here is your OTP code: 849201").toString("base64url") },
+                mimeType: "text/plain"
+              }
+            }),
+            { status: 200 }
+          );
+        }
+        return new Response("{}", { status: 200 });
+      };
+
+      await watchAccount({
+        accountId: "acc-verified-test",
+        pollMs: 1,
+        signal: controller.signal,
+        fetchImpl: mockFetch as typeof fetch,
+        homeDir: tempDir,
+        onOtp: (otp) => {
+          receivedOtp = otp;
+          controller.abort();
+        }
+      });
+
+      expect(receivedOtp).toBeTruthy();
+      expect(receivedOtp?.senderVerified).toBe(true);
+      expect(typeof receivedOtp?.senderVerified).toBe("boolean");
+    });
+  });
+});
 

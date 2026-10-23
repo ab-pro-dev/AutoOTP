@@ -221,6 +221,7 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
               id: otp.messageId ?? otp.id ?? crypto.randomUUID(),
               sender: otp.sender,
               senderDomain: otp.senderDomain,
+              senderVerified: otp.senderVerified,
               code: otp.code,
               raw: otp.raw,
               account: alias,
@@ -232,7 +233,8 @@ export async function startService(options: StartServiceOptions = {}): Promise<v
                 accountId: alias,
                 sender: otp.sender,
                 code: otp.code,
-                receivedAt: otp.receivedAt
+                receivedAt: otp.receivedAt,
+                senderVerified: otp.senderVerified
               })
             );
 

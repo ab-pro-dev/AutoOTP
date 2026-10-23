@@ -249,6 +249,7 @@ describe("AutoOTP Service (packages/service)", () => {
     expect(receivedOtp.account).toBe("personal");
     expect(receivedOtp.code).toBe("782103");
     expect(receivedOtp.sender).toBe("Service");
+    expect(receivedOtp.senderVerified).toBe(false);
 
     // Verify OTP was saved to history
     const historyStore = new HistoryStore(tempDir);

@@ -97,12 +97,13 @@ describe("Local OTP WebSocket Server (packages/websocket)", () => {
         receivedAt: 1700000000000
       });
 
-      // Broadcast with senderDomain present
+      // Broadcast with senderDomain and senderVerified present
       const otpWithDomainPromise = waitForMessage(client);
       server.broadcastOtp({
         id: "msg-2",
         sender: "GitHub",
         senderDomain: "github.com",
+        senderVerified: true,
         code: "123456",
         raw: "Your code is 123456",
         account: "personal",
@@ -114,6 +115,7 @@ describe("Local OTP WebSocket Server (packages/websocket)", () => {
         id: "msg-2",
         sender: "GitHub",
         senderDomain: "github.com",
+        senderVerified: true,
         code: "123456",
         raw: "Your code is 123456",
         account: "personal",

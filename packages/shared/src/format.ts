@@ -9,6 +9,7 @@ export function formatOtpNotification(otp: {
   code: string;
   receivedAt?: number;
   maskCode?: boolean;
+  senderVerified?: boolean;
 }): string {
   const d = new Date(otp.receivedAt || Date.now());
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -16,5 +17,6 @@ export function formatOtpNotification(otp: {
   const acct = otp.accountId ?? otp.account ?? "unknown";
   const shouldMask = otp.maskCode ?? (!process.stdout?.isTTY);
   const displayCode = shouldMask ? "*".repeat(otp.code.length) : otp.code;
-  return `[${time}] ${otp.sender} (${acct}) -> ${displayCode}`;
+  const verifiedMarker = otp.senderVerified ? " [verified]" : " [unverified]";
+  return `[${time}] ${otp.sender} (${acct}) -> ${displayCode}${verifiedMarker}`;
 }

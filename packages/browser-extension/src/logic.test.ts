@@ -73,6 +73,7 @@ describe("Incoming Message Validation", () => {
       id: "msg-123",
       sender: "GitHub",
       senderDomain: "github.com",
+      senderVerified: true,
       code: "892147",
       account: "personal",
       receivedAt: 1700000000000,
@@ -93,6 +94,7 @@ describe("Incoming Message Validation", () => {
     expect(parseIncomingMessage(JSON.stringify(otpPayloadWithoutDomain))).toEqual({
       ...otpPayloadWithoutDomain,
       senderDomain: null,
+      senderVerified: false,
       raw: undefined
     });
 
@@ -109,11 +111,30 @@ describe("Incoming Message Validation", () => {
       id: undefined,
       sender: "Service",
       senderDomain: null,
+      senderVerified: false,
       code: "654321",
       account: "test",
       receivedAt: 1700000000000,
       raw: undefined
     });
+  });
+
+  it("validates senderVerified as boolean or defaults to false", () => {
+    const base = {
+      type: "otp",
+      sender: "GitHub",
+      code: "123456",
+      account: "personal",
+      receivedAt: 1700000000000
+    };
+
+    expect(parseIncomingMessage({ ...base, senderVerified: true })?.senderVerified).toBe(true);
+    expect(parseIncomingMessage({ ...base, senderVerified: false })?.senderVerified).toBe(false);
+    expect(parseIncomingMessage({ ...base, senderVerified: "true" })?.senderVerified).toBe(false);
+    expect(parseIncomingMessage({ ...base, senderVerified: 1 })?.senderVerified).toBe(false);
+    expect(parseIncomingMessage({ ...base, senderVerified: null })?.senderVerified).toBe(false);
+    expect(parseIncomingMessage({ ...base, senderVerified: undefined })?.senderVerified).toBe(false);
+    expect(parseIncomingMessage({ ...base, senderVerified: {} })?.senderVerified).toBe(false);
   });
 
   it("rejects malformed inputs and non-objects", () => {
@@ -459,6 +480,7 @@ describe("decideAutofill", () => {
     protocol: "https:",
     hostname: "github.com",
     senderDomain: "github.com",
+    senderVerified: true,
     ageMs: 5000,
     used: false
   };
@@ -482,9 +504,15 @@ describe("decideAutofill", () => {
         askFirst: true,
         protocol: "http:",
         used: true,
-        senderDomain: "evil.com"
+        senderDomain: "evil.com",
+        senderVerified: false
       })
     ).toBe("none");
+  });
+
+  it("returns 'manual' when senderVerified is not true", () => {
+    expect(decideAutofill({ ...baseParams, senderVerified: false })).toBe("manual");
+    expect(decideAutofill({ ...baseParams, senderVerified: undefined })).toBe("manual");
   });
 
   it("returns 'manual' when askFirst is true", () => {
@@ -524,6 +552,7 @@ describe("decideAutofill", () => {
       protocol: "https:",
       hostname: "github.com",
       senderDomain: "github.com",
+      senderVerified: true,
       ageMs: 5000,
       used: false
     };
@@ -534,7 +563,10 @@ describe("decideAutofill", () => {
       ["askFirst", { askFirst: true }, "manual"],
       ["3 min old", { ageMs: 180000 }, "manual"],
       ["11 min old", { ageMs: 660000 }, "none"],
-      ["used", { used: true }, "manual"]
+      ["used", { used: true }, "manual"],
+      ["unverified", { senderVerified: false }, "manual"],
+      ["unverified but 11 min old", { senderVerified: false, ageMs: 660000 }, "none"],
+      ["verified true", { senderVerified: true }, "auto"]
     ];
 
     for (const [, override, expected] of cases) {
@@ -786,6 +818,7 @@ describe("Message Validation", () => {
 describe("deriveViewState", () => {
   const makeLatest = (senderDomain: string | null = "github.com", overrides = {}) => ({
     senderDomain,
+    senderVerified: true,
     code: "123456",
     ageMs: 5000,
     used: false,
@@ -809,6 +842,7 @@ describe("deriveViewState", () => {
       fillEnabled: false,
       fillLabel: "Fill",
       showMismatchWarning: false,
+      showUnverifiedWarning: false,
       hint: "AutoOTP isn't active on this page. Reload it, or it may not be an https page."
     });
   });
@@ -823,6 +857,7 @@ describe("deriveViewState", () => {
 
     expect(res.fillEnabled).toBe(false);
     expect(res.showMismatchWarning).toBe(false);
+    expect(res.showUnverifiedWarning).toBe(false);
     expect(res.hint).toBe("AutoOTP isn't active on this page. Reload it, or it may not be an https page.");
   });
 
@@ -838,6 +873,7 @@ describe("deriveViewState", () => {
       fillEnabled: false,
       fillLabel: "Fill",
       showMismatchWarning: false,
+      showUnverifiedWarning: false,
       hint: "No code field found on this page"
     });
 
@@ -851,6 +887,7 @@ describe("deriveViewState", () => {
 
     expect(resMismatch.fillEnabled).toBe(false);
     expect(resMismatch.showMismatchWarning).toBe(false);
+    expect(resMismatch.showUnverifiedWarning).toBe(false);
     expect(resMismatch.hint).toBe("No code field found on this page");
   });
 
@@ -866,6 +903,7 @@ describe("deriveViewState", () => {
       fillEnabled: true,
       fillLabel: "Fill",
       showMismatchWarning: false,
+      showUnverifiedWarning: false,
       hint: null
     });
 
@@ -880,6 +918,7 @@ describe("deriveViewState", () => {
     expect(resSub.fillEnabled).toBe(true);
     expect(resSub.fillLabel).toBe("Fill");
     expect(resSub.showMismatchWarning).toBe(false);
+    expect(resSub.showUnverifiedWarning).toBe(false);
     expect(resSub.hint).toBeNull();
   });
 
@@ -895,6 +934,7 @@ describe("deriveViewState", () => {
       fillEnabled: true,
       fillLabel: "Fill anyway",
       showMismatchWarning: true,
+      showUnverifiedWarning: false,
       hint: null
     });
 
@@ -909,6 +949,7 @@ describe("deriveViewState", () => {
       fillEnabled: true,
       fillLabel: "Fill anyway",
       showMismatchWarning: true,
+      showUnverifiedWarning: false,
       hint: null
     });
 
@@ -922,6 +963,7 @@ describe("deriveViewState", () => {
     expect(resEvil.fillEnabled).toBe(true);
     expect(resEvil.fillLabel).toBe("Fill anyway");
     expect(resEvil.showMismatchWarning).toBe(true);
+    expect(resEvil.showUnverifiedWarning).toBe(false);
   });
 
   it("handles no latest code or code older than 10 minutes: fillEnabled false and no warning", () => {
@@ -936,6 +978,7 @@ describe("deriveViewState", () => {
       fillEnabled: false,
       fillLabel: "Fill",
       showMismatchWarning: false,
+      showUnverifiedWarning: false,
       hint: null
     });
 
@@ -950,6 +993,7 @@ describe("deriveViewState", () => {
       fillEnabled: false,
       fillLabel: "Fill",
       showMismatchWarning: false,
+      showUnverifiedWarning: false,
       hint: null
     });
 
@@ -963,6 +1007,7 @@ describe("deriveViewState", () => {
 
     expect(resStaleMismatch.fillEnabled).toBe(false);
     expect(resStaleMismatch.showMismatchWarning).toBe(false);
+    expect(resStaleMismatch.showUnverifiedWarning).toBe(false);
     expect(resStaleMismatch.hint).toBeNull();
 
     // Exactly 10 minutes (600,000 ms) is still accepted
@@ -987,6 +1032,7 @@ describe("deriveViewState", () => {
   it("verifies the exact cases from verification script b", () => {
     const L = (s: string | null) => ({
       senderDomain: s,
+      senderVerified: true,
       code: "123456",
       ageMs: 5000,
       used: false
@@ -1004,6 +1050,7 @@ describe("deriveViewState", () => {
       fillEnabled: true,
       fillLabel: "Fill",
       showMismatchWarning: false,
+      showUnverifiedWarning: false,
       hint: null
     });
 
@@ -1018,6 +1065,7 @@ describe("deriveViewState", () => {
       fillEnabled: true,
       fillLabel: "Fill anyway",
       showMismatchWarning: true,
+      showUnverifiedWarning: false,
       hint: null
     });
 
@@ -1032,6 +1080,7 @@ describe("deriveViewState", () => {
       fillEnabled: false,
       fillLabel: "Fill",
       showMismatchWarning: false,
+      showUnverifiedWarning: false,
       hint: "No code field found on this page"
     });
 
@@ -1046,8 +1095,85 @@ describe("deriveViewState", () => {
       fillEnabled: false,
       fillLabel: "Fill",
       showMismatchWarning: false,
+      showUnverifiedWarning: false,
       hint: "AutoOTP isn't active on this page. Reload it, or it may not be an https page."
     });
+  });
+
+  it("adds showUnverifiedWarning true when field is present and senderVerified is false", () => {
+    // 1. matching domain, unverified -> showUnverifiedWarning: true, fillLabel: 'Fill anyway', showMismatchWarning: false
+    const resMatchingUnverified = deriveViewState({
+      status: "connected",
+      latest: makeLatest("github.com", { senderVerified: false }),
+      tab: makeTab("github.com", true),
+      askFirst: false
+    });
+    expect(resMatchingUnverified).toEqual({
+      fillEnabled: true,
+      fillLabel: "Fill anyway",
+      showMismatchWarning: false,
+      showUnverifiedWarning: true,
+      hint: null
+    });
+
+    // 2. mismatching domain, unverified -> showUnverifiedWarning: true, fillLabel: 'Fill anyway', showMismatchWarning: true
+    const resMismatchUnverified = deriveViewState({
+      status: "connected",
+      latest: makeLatest("gmail.com", { senderVerified: false }),
+      tab: makeTab("github.com", true),
+      askFirst: false
+    });
+    expect(resMismatchUnverified).toEqual({
+      fillEnabled: true,
+      fillLabel: "Fill anyway",
+      showMismatchWarning: true,
+      showUnverifiedWarning: true,
+      hint: null
+    });
+
+    // 3. matching domain, verified true -> showUnverifiedWarning: false, fillLabel: 'Fill', showMismatchWarning: false
+    const resVerified = deriveViewState({
+      status: "connected",
+      latest: makeLatest("github.com", { senderVerified: true }),
+      tab: makeTab("github.com", true),
+      askFirst: false
+    });
+    expect(resVerified).toEqual({
+      fillEnabled: true,
+      fillLabel: "Fill",
+      showMismatchWarning: false,
+      showUnverifiedWarning: false,
+      hint: null
+    });
+
+    // 4. field not present, unverified -> showUnverifiedWarning: false
+    const resNoField = deriveViewState({
+      status: "connected",
+      latest: makeLatest("github.com", { senderVerified: false }),
+      tab: makeTab("github.com", false),
+      askFirst: false
+    });
+    expect(resNoField.showUnverifiedWarning).toBe(false);
+    expect(resNoField.fillEnabled).toBe(false);
+
+    // 5. tab.hostname null, unverified -> showUnverifiedWarning: false
+    const resNoHost = deriveViewState({
+      status: "connected",
+      latest: makeLatest("github.com", { senderVerified: false }),
+      tab: { hostname: null, present: false },
+      askFirst: false
+    });
+    expect(resNoHost.showUnverifiedWarning).toBe(false);
+
+    // 6. expired code (>10m), unverified -> showUnverifiedWarning: false
+    const resExpired = deriveViewState({
+      status: "connected",
+      latest: makeLatest("github.com", { senderVerified: false, ageMs: 700000 }),
+      tab: makeTab("github.com", true),
+      askFirst: false
+    });
+    expect(resExpired.showUnverifiedWarning).toBe(false);
+    expect(resExpired.fillEnabled).toBe(false);
   });
 });
 

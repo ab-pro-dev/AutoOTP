@@ -27,6 +27,7 @@ type TabRegistry = Record<string, TabInfo>;
 interface StoredOtp {
   sender: string;
   senderDomain: string | null;
+  senderVerified?: boolean;
   code: string;
   account: string;
   receivedAt: number;
@@ -105,6 +106,7 @@ async function attemptAutofill(tabId: number, tabInfo: TabInfo): Promise<void> {
     protocol: tabInfo.protocol,
     hostname: tabInfo.hostname,
     senderDomain: latestOtp.senderDomain,
+    senderVerified: latestOtp.senderVerified === true,
     ageMs,
     used: Boolean(latestOtp.used)
   });
@@ -215,10 +217,11 @@ async function connect(): Promise<void> {
       }
 
       if (msg.type === "otp") {
-        const { sender, senderDomain, code, account, receivedAt } = msg;
+        const { sender, senderDomain, senderVerified, code, account, receivedAt } = msg;
         const otpData: StoredOtp = {
           sender,
           senderDomain,
+          senderVerified: Boolean(senderVerified),
           code,
           account,
           receivedAt,

@@ -3,6 +3,9 @@ import { getHomeDir } from "@autootp/shared";
 import { OAuthCredentials } from "./credentials.js";
 import { refreshAccessToken } from "./login.js";
 import { ReauthRequiredError } from "./errors.js";
+import { isSenderVerified } from "./verification.js";
+
+export { isSenderVerified } from "./verification.js";
 
 export interface OtpNotification {
   id?: string;
@@ -10,6 +13,7 @@ export interface OtpNotification {
   accountId: string;
   sender: string;
   senderDomain?: string | null;
+  senderVerified?: boolean;
   code: string;
   raw: string;
   confidence: "high" | "medium";
@@ -367,6 +371,7 @@ export async function watchAccount(options: WatchAccountOptions): Promise<void> 
 
     const sender = parseSender(from);
     const senderDomain = parseSenderDomain(from);
+    const senderVerified = isSenderVerified(headers, senderDomain);
     const body = extractBodyFromPayload(msgData.payload);
 
     const otp = extractOtp({ subject, body });
@@ -384,6 +389,7 @@ export async function watchAccount(options: WatchAccountOptions): Promise<void> 
           accountId,
           sender,
           senderDomain,
+          senderVerified,
           code: otp.code,
           raw: otp.raw,
           confidence: otp.confidence,

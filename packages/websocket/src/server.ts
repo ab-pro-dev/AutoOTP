@@ -17,6 +17,7 @@ export interface OtpBroadcastPayload {
   id?: string;
   sender: string;
   senderDomain?: string | null;
+  senderVerified?: boolean;
   code: string;
   raw: string;
   account: string;
@@ -238,6 +239,9 @@ export async function createOtpServer(
     };
     if (otp.senderDomain !== undefined) {
       msg.senderDomain = otp.senderDomain;
+    }
+    if (otp.senderVerified !== undefined) {
+      msg.senderVerified = otp.senderVerified;
     }
     const payload = JSON.stringify(msg);
 

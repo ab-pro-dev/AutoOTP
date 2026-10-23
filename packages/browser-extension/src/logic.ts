@@ -41,6 +41,7 @@ export interface OtpMessage {
   id?: string;
   sender: string;
   senderDomain: string | null;
+  senderVerified?: boolean;
   code: string;
   account: string;
   receivedAt: number;
@@ -119,11 +120,14 @@ export function parseIncomingMessage(data: unknown): ValidatedMessage | null {
       }
     }
 
+    const senderVerified = typeof obj.senderVerified === "boolean" ? obj.senderVerified : false;
+
     return {
       type: "otp",
       id: typeof obj.id === "string" ? obj.id : undefined,
       sender,
       senderDomain,
+      senderVerified,
       code,
       account,
       receivedAt,
@@ -333,6 +337,7 @@ export interface DecideAutofillParams {
   protocol: string;
   hostname: string;
   senderDomain: string | null;
+  senderVerified?: boolean;
   ageMs: number;
   used: boolean;
 }
@@ -346,11 +351,12 @@ export type AutofillDecision = "auto" | "manual" | "none";
  * - protocol !== "https:" returns "manual"
  * - used returns "manual"
  * - senderDomain null or !domainsMatch(senderDomain, hostname) returns "manual"
+ * - senderVerified not true returns "manual"
  * - ageMs > 2 minutes (120,000 ms) returns "manual"
  * - otherwise "auto"
  */
 export function decideAutofill(params: DecideAutofillParams): AutofillDecision {
-  const { askFirst, protocol, hostname, senderDomain, ageMs, used } = params;
+  const { askFirst, protocol, hostname, senderDomain, senderVerified, ageMs, used } = params;
   if (ageMs > 10 * 60 * 1000) {
     return "none";
   }
@@ -364,6 +370,9 @@ export function decideAutofill(params: DecideAutofillParams): AutofillDecision {
     return "manual";
   }
   if (!senderDomain || !domainsMatch(senderDomain, hostname)) {
+    return "manual";
+  }
+  if (!senderVerified) {
     return "manual";
   }
   if (ageMs > 2 * 60 * 1000) {
@@ -522,6 +531,7 @@ export function validateFillMessage(msg: unknown): FillMessage | null {
 
 export interface LatestOtpState {
   senderDomain: string | null;
+  senderVerified?: boolean;
   ageMs: number;
   used: boolean;
   usedHostname?: string;
@@ -547,6 +557,7 @@ export interface ViewState {
   fillEnabled: boolean;
   fillLabel: string;
   showMismatchWarning: boolean;
+  showUnverifiedWarning: boolean;
   hint: string | null;
   usedFeedback?: string | null;
 }
@@ -588,10 +599,11 @@ export function formatUsedFeedback(
 /**
  * Derives the UI view state for the extension popup.
  * Rules:
- * - tab.hostname null: fillEnabled false, showMismatchWarning false, hint "AutoOTP isn't active on this page. Reload it, or it may not be an https page."
- * - hostname known but present false: fillEnabled false, showMismatchWarning false, hint "No code field found on this page"
+ * - tab.hostname null: fillEnabled false, showMismatchWarning false, showUnverifiedWarning false, hint "AutoOTP isn't active on this page. Reload it, or it may not be an https page."
+ * - hostname known but present false: fillEnabled false, showMismatchWarning false, showUnverifiedWarning false, hint "No code field found on this page"
  * - present true and the sender matches (domainsMatch): fillEnabled true, fillLabel "Fill", no warning
  * - present true and the sender is null or does not match: fillEnabled true, fillLabel "Fill anyway", showMismatchWarning true
+ * - present true and senderVerified is false: showUnverifiedWarning true, fillLabel "Fill anyway"
  * - no latest code or older than 10 minutes: fillEnabled false and no warning
  * - Otherwise hint is null.
  */
@@ -601,15 +613,18 @@ export function deriveViewState(params: DeriveViewStateParams): ViewState {
   let fillEnabled = false;
   let fillLabel = "Fill";
   let showMismatchWarning = false;
+  let showUnverifiedWarning = false;
   let hint: string | null = null;
 
   if (!tab.hostname) {
     fillEnabled = false;
     showMismatchWarning = false;
+    showUnverifiedWarning = false;
     hint = "AutoOTP isn't active on this page. Reload it, or it may not be an https page.";
   } else if (!tab.present) {
     fillEnabled = false;
     showMismatchWarning = false;
+    showUnverifiedWarning = false;
     hint = "No code field found on this page";
   } else {
     const isExpiredOrMissing =
@@ -619,20 +634,27 @@ export function deriveViewState(params: DeriveViewStateParams): ViewState {
       fillEnabled = false;
       fillLabel = "Fill";
       showMismatchWarning = false;
+      showUnverifiedWarning = false;
       hint = null;
     } else {
       const match = Boolean(latest.senderDomain && domainsMatch(latest.senderDomain, tab.hostname));
-      if (match) {
-        fillEnabled = true;
-        fillLabel = "Fill";
-        showMismatchWarning = false;
-        hint = null;
-      } else {
-        fillEnabled = true;
-        fillLabel = "Fill anyway";
-        showMismatchWarning = true;
-        hint = null;
+      const isVerified = Boolean(latest.senderVerified);
+
+      if (!isVerified) {
+        showUnverifiedWarning = true;
       }
+
+      if (!match) {
+        showMismatchWarning = true;
+      }
+
+      fillEnabled = true;
+      if (!match || !isVerified) {
+        fillLabel = "Fill anyway";
+      } else {
+        fillLabel = "Fill";
+      }
+      hint = null;
     }
   }
 
@@ -640,6 +662,7 @@ export function deriveViewState(params: DeriveViewStateParams): ViewState {
     fillEnabled,
     fillLabel,
     showMismatchWarning,
+    showUnverifiedWarning,
     hint
   };
 

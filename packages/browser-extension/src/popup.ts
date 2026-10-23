@@ -19,6 +19,7 @@ const fillBtn = document.getElementById("fill-btn") as HTMLButtonElement | null;
 const askFirstCheckbox = document.getElementById("ask-first-checkbox") as HTMLInputElement | null;
 const senderSiteInfo = document.getElementById("sender-site-info");
 const mismatchWarning = document.getElementById("mismatch-warning");
+const unverifiedWarning = document.getElementById("unverified-warning");
 const usedFeedback = document.getElementById("used-feedback");
 const noFieldNotice = document.getElementById("no-field-notice");
 
@@ -101,6 +102,10 @@ async function render(): Promise<void> {
 
       if (mismatchWarning) {
         mismatchWarning.style.display = viewState.showMismatchWarning ? "block" : "none";
+      }
+
+      if (unverifiedWarning) {
+        unverifiedWarning.style.display = viewState.showUnverifiedWarning ? "block" : "none";
       }
 
       if (usedFeedback) {

@@ -174,17 +174,28 @@ describe("CLI utilities and commands", () => {
   });
 
   describe("Watch Action & Formatting", () => {
-    it("formatOtpNotification formats single-line string with timestamp, sender, alias and code", () => {
+    it("formatOtpNotification formats single-line string with timestamp, sender, alias, code, and verified marker", () => {
       // Mock timestamp: 2026-01-01 12:30:45 local time
       const testDate = new Date(2026, 0, 1, 12, 30, 45);
-      const formatted = formatOtpNotification({
+      const formattedUnverified = formatOtpNotification({
         accountId: "work",
         sender: "GitHub",
         code: "948271",
         receivedAt: testDate.getTime(),
-        maskCode: false
+        maskCode: false,
+        senderVerified: false
       });
-      expect(formatted).toBe("[12:30:45] GitHub (work) -> 948271");
+      expect(formattedUnverified).toBe("[12:30:45] GitHub (work) -> 948271 [unverified]");
+
+      const formattedVerified = formatOtpNotification({
+        accountId: "work",
+        sender: "GitHub",
+        code: "948271",
+        receivedAt: testDate.getTime(),
+        maskCode: false,
+        senderVerified: true
+      });
+      expect(formattedVerified).toBe("[12:30:45] GitHub (work) -> 948271 [verified]");
     });
 
     it("watchAction throws empty-state error when no accounts connected", async () => {
@@ -417,17 +428,19 @@ describe("CLI utilities and commands", () => {
       // Explicitly test non-TTY / masked mode
       const maskedLine = formatOtpNotification({ ...otp, maskCode: true });
       expect(maskedLine).toContain("GitHub (personal) -> ******");
+      expect(maskedLine).toContain("[unverified]");
       const arrowParts = maskedLine.split("->");
-      const codePart = arrowParts[1].trim();
+      const afterArrow = arrowParts[1].trim();
+      const codePart = afterArrow.split(/\s+/)[0];
       expect(codePart).toBe("******");
       expect(codePart.length).toBe(otp.code.length);
       // Prove no digits of the code appear in non-TTY output
       expect(/\d/.test(codePart)).toBe(false);
 
-      // Verify TTY output retains the full unmasked code
-      const unmaskedLine = formatOtpNotification({ ...otp, maskCode: false });
-      expect(unmaskedLine).toContain("GitHub (personal) -> 892147");
-      expect(unmaskedLine.split("->")[1].trim()).toBe("892147");
+      // Verify TTY output retains the full unmasked code with verified marker
+      const unmaskedLine = formatOtpNotification({ ...otp, maskCode: false, senderVerified: true });
+      expect(unmaskedLine).toContain("GitHub (personal) -> 892147 [verified]");
+      expect(unmaskedLine.split("->")[1].trim().split(/\s+/)[0]).toBe("892147");
     });
 
     it("respects process.stdout.isTTY boolean", () => {
@@ -440,15 +453,17 @@ describe("CLI utilities and commands", () => {
           code: "123456"
         });
         expect(lineNonTTY).toContain("Google (work) -> ******");
-        expect(/\d/.test(lineNonTTY.split("->")[1])).toBe(false);
+        expect(lineNonTTY).toContain("[unverified]");
+        expect(/\d/.test(lineNonTTY.split("->")[1].split(/\s+/)[0])).toBe(false);
 
         process.stdout.isTTY = true;
         const lineTTY = formatOtpNotification({
           accountId: "work",
           sender: "Google",
-          code: "123456"
+          code: "123456",
+          senderVerified: true
         });
-        expect(lineTTY).toContain("Google (work) -> 123456");
+        expect(lineTTY).toContain("Google (work) -> 123456 [verified]");
       } finally {
         process.stdout.isTTY = origIsTTY;
       }
