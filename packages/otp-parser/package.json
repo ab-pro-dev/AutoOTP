@@ -4,6 +4,9 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "scripts": {
+    "corpus": "node ./scripts/run-corpus.mjs"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

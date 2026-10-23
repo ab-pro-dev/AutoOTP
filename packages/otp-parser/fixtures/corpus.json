@@ -1,0 +1,772 @@
+[
+  {
+    "id": "pos-01",
+    "lang": "en",
+    "subject": "Your verification code",
+    "body": "Your verification code is 849201. Please enter it to complete your login.",
+    "expected": "849201"
+  },
+  {
+    "id": "pos-02",
+    "lang": "en",
+    "subject": "One-Time Password",
+    "body": "Your one-time password is 194820. Do not share this password with anyone.",
+    "expected": "194820"
+  },
+  {
+    "id": "pos-03",
+    "lang": "en",
+    "subject": "Security notification",
+    "body": "Your security code is 738204. It expires in 10 minutes.",
+    "expected": "738204"
+  },
+  {
+    "id": "pos-04",
+    "lang": "en",
+    "subject": "Login passcode",
+    "body": "Your login code is 582910. Use this code to access your profile.",
+    "expected": "582910"
+  },
+  {
+    "id": "pos-05",
+    "lang": "en",
+    "subject": "Your verification code",
+    "body": "Hello,\n\n483921\n\nThanks for signing in.",
+    "expected": "483921"
+  },
+  {
+    "id": "pos-06",
+    "lang": "en",
+    "subject": "Your one-time passcode",
+    "body": "Use this code to sign in:\n\n839201\n\nIt expires shortly.",
+    "expected": "839201"
+  },
+  {
+    "id": "pos-07",
+    "lang": "es",
+    "subject": "Código de verificación",
+    "body": "Hola,\n\n592814\n\nSaludos del equipo.",
+    "expected": "592814"
+  },
+  {
+    "id": "pos-08",
+    "lang": "fr",
+    "subject": "Code de vérification",
+    "body": "Bonjour,\n\n391024\n\nMerci de votre confiance.",
+    "expected": "391024"
+  },
+  {
+    "id": "pos-09",
+    "lang": "en",
+    "subject": "Google verification",
+    "body": "G-482913 is your Google verification code. Don't share it.",
+    "expected": "482913"
+  },
+  {
+    "id": "pos-10",
+    "lang": "en",
+    "subject": "Authentication notification",
+    "body": "948201 is your GitHub authentication code.",
+    "expected": "948201"
+  },
+  {
+    "id": "pos-11",
+    "lang": "en",
+    "subject": "Confirmation",
+    "body": "382910 is your confirmation code.",
+    "expected": "382910"
+  },
+  {
+    "id": "pos-12",
+    "lang": "en",
+    "subject": "Account alert",
+    "body": "849201 is your security code.",
+    "expected": "849201"
+  },
+  {
+    "id": "pos-13",
+    "lang": "en",
+    "subject": "Your verification code is 482913",
+    "body": "Please enter this code on the verification screen.",
+    "expected": "482913"
+  },
+  {
+    "id": "pos-14",
+    "lang": "en",
+    "subject": "583920 is your login code",
+    "body": "Do not share this code with anyone.",
+    "expected": "583920"
+  },
+  {
+    "id": "pos-15",
+    "lang": "en",
+    "subject": "Your code: 394821",
+    "body": "This code will expire in 10 minutes.",
+    "expected": "394821"
+  },
+  {
+    "id": "pos-16",
+    "lang": "es",
+    "subject": "Su código es 849201",
+    "body": "Introduzca el código para verificar su identidad.",
+    "expected": "849201"
+  },
+  {
+    "id": "pos-17",
+    "lang": "en",
+    "subject": "Security check",
+    "body": "Your verification code is 456-821. Enter it promptly.",
+    "expected": "456821"
+  },
+  {
+    "id": "pos-18",
+    "lang": "en",
+    "subject": "Passcode required",
+    "body": "Your passcode is 123 456. Valid for 5 minutes.",
+    "expected": "123456"
+  },
+  {
+    "id": "pos-19",
+    "lang": "en",
+    "subject": "Sign-in alert",
+    "body": "Security code: 91-47-22 expires in 10 minutes.",
+    "expected": "914722"
+  },
+  {
+    "id": "pos-20",
+    "lang": "en",
+    "subject": "Confirmation code",
+    "body": "Enter the confirmation code: 83 92 01 to proceed.",
+    "expected": "839201"
+  },
+  {
+    "id": "pos-21",
+    "lang": "en",
+    "subject": "Authorization",
+    "body": "Your auth code is 782-910. Use it now.",
+    "expected": "782910"
+  },
+  {
+    "id": "pos-22",
+    "lang": "en",
+    "subject": "Two-factor auth",
+    "body": "Your verification code is A92B13. Case sensitive.",
+    "expected": "A92B13"
+  },
+  {
+    "id": "pos-23",
+    "lang": "en",
+    "subject": "Temporary access",
+    "body": "Your temporary login code: ab12-cd34. Expires soon.",
+    "expected": "ab12cd34"
+  },
+  {
+    "id": "pos-24",
+    "lang": "en",
+    "subject": "Verification code",
+    "body": "Verification code: 9X4K2P. Enter on web page.",
+    "expected": "9X4K2P"
+  },
+  {
+    "id": "pos-25",
+    "lang": "en",
+    "subject": "Auth confirmation",
+    "body": "Use authentication code: 7B8-9A2 to verify.",
+    "expected": "7B89A2"
+  },
+  {
+    "id": "pos-26",
+    "lang": "en",
+    "subject": "Passcode required",
+    "body": "Login passcode: W4R8T2. Keep it confidential.",
+    "expected": "W4R8T2"
+  },
+  {
+    "id": "pos-27",
+    "lang": "en",
+    "subject": "Device verification",
+    "body": "Enter code: m9k2-p4x1 to authorize this device.",
+    "expected": "m9k2p4x1"
+  },
+  {
+    "id": "pos-28",
+    "lang": "en",
+    "subject": "4-digit code",
+    "body": "Your verification code is 8492. Enter it now.",
+    "expected": "8492"
+  },
+  {
+    "id": "pos-29",
+    "lang": "en",
+    "subject": "PIN requested",
+    "body": "Enter passcode 3821 to continue.",
+    "expected": "3821"
+  },
+  {
+    "id": "pos-30",
+    "lang": "en",
+    "subject": "5-digit token",
+    "body": "Your security code is 94820.",
+    "expected": "94820"
+  },
+  {
+    "id": "pos-31",
+    "lang": "en",
+    "subject": "One-time code",
+    "body": "One-time code: 48291. Do not reply to this email.",
+    "expected": "48291"
+  },
+  {
+    "id": "pos-32",
+    "lang": "en",
+    "subject": "Verification code",
+    "body": "Verification code: 582910. Standard 6-digit code.",
+    "expected": "582910"
+  },
+  {
+    "id": "pos-33",
+    "lang": "en",
+    "subject": "7-digit login code",
+    "body": "Your login code is 8492018.",
+    "expected": "8492018"
+  },
+  {
+    "id": "pos-34",
+    "lang": "en",
+    "subject": "Passcode",
+    "body": "Passcode: 3948201 is required to continue.",
+    "expected": "3948201"
+  },
+  {
+    "id": "pos-35",
+    "lang": "en",
+    "subject": "8-digit verification",
+    "body": "Please enter verification code 12345678 to finish sign-up.",
+    "expected": "12345678"
+  },
+  {
+    "id": "pos-36",
+    "lang": "en",
+    "subject": "Security code",
+    "body": "Your security code is 84920193. Use it within 5 minutes.",
+    "expected": "84920193"
+  },
+  {
+    "id": "pos-37",
+    "lang": "en",
+    "subject": "Extra whitespace",
+    "body": "Your    verification   code   is    483921 .",
+    "expected": "483921"
+  },
+  {
+    "id": "pos-38",
+    "lang": "en",
+    "subject": "HTML stripped",
+    "body": "Security\n\ncode:\n\n\t748291\n\nExpires soon.",
+    "expected": "748291"
+  },
+  {
+    "id": "pos-39",
+    "lang": "en",
+    "subject": "Passcode formatting",
+    "body": "Passcode  :   \n   849201   \n\nThank you.",
+    "expected": "849201"
+  },
+  {
+    "id": "pos-40",
+    "lang": "en",
+    "subject": "Login code whitespace",
+    "body": "Login   code   \n   \n   394820   ",
+    "expected": "394820"
+  },
+  {
+    "id": "pos-41",
+    "lang": "en",
+    "subject": "Order shipped",
+    "body": "Order #482913 shipped. Your verification code is 771204. Total: $59.00",
+    "expected": "771204"
+  },
+  {
+    "id": "pos-42",
+    "lang": "en",
+    "subject": "New Year greetings",
+    "body": "Happy new year 2026! Your verification code is 382910. Need help? Call 555-123-4567.",
+    "expected": "382910"
+  },
+  {
+    "id": "pos-43",
+    "lang": "en",
+    "subject": "Subscription renewal",
+    "body": "Your subscription renewal is 29.99 USD. Your confirmation code is 849201.",
+    "expected": "849201"
+  },
+  {
+    "id": "pos-44",
+    "lang": "en",
+    "subject": "Order update",
+    "body": "Regarding order #938210: please use verification code 482914 to confirm changes.",
+    "expected": "482914"
+  },
+  {
+    "id": "pos-45",
+    "lang": "en",
+    "subject": "Receipt and security",
+    "body": "Copyright 2026 Acme Corp. Paid: $120.00. Verification code: 583920.",
+    "expected": "583920"
+  },
+  {
+    "id": "pos-46",
+    "lang": "en",
+    "subject": "Card verification",
+    "body": "Card ending in 4821 requested access. Your security code is 918234. Helpline: 555-019-2834.",
+    "expected": "918234"
+  },
+  {
+    "id": "pos-47",
+    "lang": "es",
+    "subject": "Código de verificación",
+    "body": "Su código de verificación es 483921. Úselo en la página web.",
+    "expected": "483921"
+  },
+  {
+    "id": "pos-48",
+    "lang": "es",
+    "subject": "Continuar sesión",
+    "body": "Utilice el código 839201 para continuar con el inicio de sesión.",
+    "expected": "839201"
+  },
+  {
+    "id": "pos-49",
+    "lang": "es",
+    "subject": "Clave requerida",
+    "body": "Clave de verificación: 592810. No comparta este número.",
+    "expected": "592810"
+  },
+  {
+    "id": "pos-50",
+    "lang": "fr",
+    "subject": "Code de vérification",
+    "body": "Votre code de vérification est 948201. Il est valable pendant 15 minutes.",
+    "expected": "948201"
+  },
+  {
+    "id": "pos-51",
+    "lang": "fr",
+    "subject": "Confirmation de connexion",
+    "body": "Code de confirmation : 382910. Entrez-le sur votre écran.",
+    "expected": "382910"
+  },
+  {
+    "id": "pos-52",
+    "lang": "fr",
+    "subject": "Authentification",
+    "body": "Utilisez le code 582914 pour vous connecter à votre compte.",
+    "expected": "582914"
+  },
+  {
+    "id": "pos-53",
+    "lang": "de",
+    "subject": "Bestätigungscode",
+    "body": "Ihr Bestätigungscode lautet 849201. Bitte geben Sie ihn ein.",
+    "expected": "849201"
+  },
+  {
+    "id": "pos-54",
+    "lang": "de",
+    "subject": "Verifizierungscode",
+    "body": "Ihr Verifizierungscode ist 382910. Gültig für 10 Minuten.",
+    "expected": "382910"
+  },
+  {
+    "id": "pos-55",
+    "lang": "de",
+    "subject": "Sicherheitshinweis",
+    "body": "Sicherheitscode: 948201. Bitte nicht an Dritte weitergeben.",
+    "expected": "948201"
+  },
+  {
+    "id": "pos-56",
+    "lang": "pt",
+    "subject": "Código de verificação",
+    "body": "Seu código de verificação é 849201. Não compartilhe com ninguém.",
+    "expected": "849201"
+  },
+  {
+    "id": "pos-57",
+    "lang": "pt",
+    "subject": "Confirmação de acesso",
+    "body": "Código de confirmação: 394820. Insira o código para validar o acesso.",
+    "expected": "394820"
+  },
+  {
+    "id": "pos-58",
+    "lang": "it",
+    "subject": "Codice di verifica",
+    "body": "Il tuo codice di verifica è 482910. Inseriscilo nel campo richiesto.",
+    "expected": "482910"
+  },
+  {
+    "id": "pos-59",
+    "lang": "it",
+    "subject": "Conferma del login",
+    "body": "Codice di conferma: 849201. Valido per 5 minuti.",
+    "expected": "849201"
+  },
+  {
+    "id": "pos-60",
+    "lang": "ar",
+    "subject": "رمز التحقق",
+    "body": "رمز التحقق الخاص بك هو 556677. يرجى إدخاله في الموقع.",
+    "expected": "556677"
+  },
+  {
+    "id": "pos-61",
+    "lang": "ar",
+    "subject": "تأكيد تسجيل الدخول",
+    "body": "كود التحقق: 839201. لا تشاركه مع أي شخص.",
+    "expected": "839201"
+  },
+  {
+    "id": "pos-62",
+    "lang": "ar",
+    "subject": "رمز الأمان",
+    "body": "رمز التأكيد هو 482910. صالح لمدة 10 دقائق.",
+    "expected": "482910"
+  },
+  {
+    "id": "pos-63",
+    "lang": "am",
+    "subject": "የማረጋገጫ ኮድ",
+    "body": "የማረጋገጫ ኮድዎ 394821 ነው",
+    "expected": "394821"
+  },
+  {
+    "id": "pos-64",
+    "lang": "am",
+    "subject": "የመለያ ማረጋገጫ",
+    "body": "የማረጋገጫ ኮድ: 849201. እባክዎ ያስገቡ።",
+    "expected": "849201"
+  },
+  {
+    "id": "pos-65",
+    "lang": "am",
+    "subject": "የደህንነት ኮድ",
+    "body": "የማረጋገጫ ቁጥር 582910. ይህን ኮድ ለማንም አያጋሩ።",
+    "expected": "582910"
+  },
+  {
+    "id": "neg-01",
+    "lang": "en",
+    "subject": "Your order has shipped",
+    "body": "Order #482913 has shipped via FedEx. Tracking: 987654321.",
+    "expected": null
+  },
+  {
+    "id": "neg-02",
+    "lang": "en",
+    "subject": "Order confirmation",
+    "body": "Order confirmation for order #849201. Items will arrive tomorrow.",
+    "expected": null
+  },
+  {
+    "id": "neg-03",
+    "lang": "en",
+    "subject": "Package update",
+    "body": "Package update: shipment #382910 is on the delivery truck.",
+    "expected": null
+  },
+  {
+    "id": "neg-04",
+    "lang": "en",
+    "subject": "Recent order processed",
+    "body": "Your recent order has been processed. Order ID: #583920.",
+    "expected": null
+  },
+  {
+    "id": "neg-05",
+    "lang": "en",
+    "subject": "Tracking alert",
+    "body": "Tracking alert: package 1Z9999999999999999 has been delivered.",
+    "expected": null
+  },
+  {
+    "id": "neg-06",
+    "lang": "en",
+    "subject": "Order in transit",
+    "body": "Order #123456 status: in transit. Expected delivery by 5 PM.",
+    "expected": null
+  },
+  {
+    "id": "neg-07",
+    "lang": "en",
+    "subject": "Invoice attached",
+    "body": "Invoice #849201 attached. Total amount: $125.00 due by Friday.",
+    "expected": null
+  },
+  {
+    "id": "neg-08",
+    "lang": "en",
+    "subject": "Transaction receipt",
+    "body": "Receipt for your transaction: Total $89.50 paid with Visa.",
+    "expected": null
+  },
+  {
+    "id": "neg-09",
+    "lang": "en",
+    "subject": "Monthly invoice",
+    "body": "Monthly invoice for account number 982104. Balance due: €45.00.",
+    "expected": null
+  },
+  {
+    "id": "neg-10",
+    "lang": "en",
+    "subject": "Payment received",
+    "body": "Payment received: $240.00 for invoice 384920.",
+    "expected": null
+  },
+  {
+    "id": "neg-11",
+    "lang": "en",
+    "subject": "Billing statement",
+    "body": "Billing statement: balance $0.00. Thank you for your payment.",
+    "expected": null
+  },
+  {
+    "id": "neg-12",
+    "lang": "en",
+    "subject": "Your receipt",
+    "body": "Your receipt from Coffee House: total $6.75.",
+    "expected": null
+  },
+  {
+    "id": "neg-13",
+    "lang": "en",
+    "subject": "Spring collection deals",
+    "body": "Spring 2026 Collection! Dresses from $39.00 to $89.00.",
+    "expected": null
+  },
+  {
+    "id": "neg-14",
+    "lang": "en",
+    "subject": "Holiday greetings",
+    "body": "Happy New Year 2026 from all of us at TechCorp! Established 2005.",
+    "expected": null
+  },
+  {
+    "id": "neg-15",
+    "lang": "en",
+    "subject": "Annual report",
+    "body": "Annual report 2025: Revenue grew by 15%. Join our 2026 webinar.",
+    "expected": null
+  },
+  {
+    "id": "neg-16",
+    "lang": "en",
+    "subject": "Summer clearance",
+    "body": "Summer sale ends soon! Save 50% on all 2024 models, now only $199.00.",
+    "expected": null
+  },
+  {
+    "id": "neg-17",
+    "lang": "en",
+    "subject": "Company anniversary",
+    "body": "Founded in 1999, celebrating 25 years of service in 2024!",
+    "expected": null
+  },
+  {
+    "id": "neg-18",
+    "lang": "en",
+    "subject": "Weekly market review",
+    "body": "Weekly recap: 2026 market forecast and investment trends.",
+    "expected": null
+  },
+  {
+    "id": "neg-19",
+    "lang": "en",
+    "subject": "Store location",
+    "body": "Our new office is located at 742 Evergreen Terrace, Springfield, OR 97477.",
+    "expected": null
+  },
+  {
+    "id": "neg-20",
+    "lang": "en",
+    "subject": "Customer support lines",
+    "body": "For customer support, please call 555-123-4567 or (800) 555-0199.",
+    "expected": null
+  },
+  {
+    "id": "neg-21",
+    "lang": "en",
+    "subject": "Return address",
+    "body": "Return items to: PO Box 48291, Suite 200, Dallas, TX 75201.",
+    "expected": null
+  },
+  {
+    "id": "neg-22",
+    "lang": "en",
+    "subject": "Contact information",
+    "body": "Contact our team at +1 555 234 5678 between 9am and 5pm.",
+    "expected": null
+  },
+  {
+    "id": "neg-23",
+    "lang": "en",
+    "subject": "Branch address",
+    "body": "Branch address: 1200 Market Street, San Francisco, CA 94102.",
+    "expected": null
+  },
+  {
+    "id": "neg-24",
+    "lang": "en",
+    "subject": "Regional directory",
+    "body": "Postal code: 90210. Phone: 555-014-8291.",
+    "expected": null
+  },
+  {
+    "id": "neg-25",
+    "lang": "en",
+    "subject": "Meeting invitation",
+    "body": "Invitation: Product Roadmap Sync on 2026-11-12 at 10:30 AM.",
+    "expected": null
+  },
+  {
+    "id": "neg-26",
+    "lang": "en",
+    "subject": "Sync reminder",
+    "body": "Event reminder: Quarterly review tomorrow from 14:00 to 15:30 UTC.",
+    "expected": null
+  },
+  {
+    "id": "neg-27",
+    "lang": "en",
+    "subject": "Appointment notice",
+    "body": "Dentist appointment scheduled for 10/24/2026 at 09:15.",
+    "expected": null
+  },
+  {
+    "id": "neg-28",
+    "lang": "en",
+    "subject": "Webinar schedule",
+    "body": "Webinar starts at 4:00 PM EST. Meeting link inside.",
+    "expected": null
+  },
+  {
+    "id": "neg-29",
+    "lang": "en",
+    "subject": "Flight confirmation",
+    "body": "Flight departure at 18:45 on 2026-12-01. Terminal 2, Gate 42.",
+    "expected": null
+  },
+  {
+    "id": "neg-30",
+    "lang": "en",
+    "subject": "Team sync",
+    "body": "Team standup daily at 09:30 AM in Conference Room B.",
+    "expected": null
+  },
+  {
+    "id": "neg-31",
+    "lang": "en",
+    "subject": "Card charge alert",
+    "body": "Your credit card ending in 4821 was charged $42.50 at Grocery Mart.",
+    "expected": null
+  },
+  {
+    "id": "neg-32",
+    "lang": "en",
+    "subject": "Debit transaction",
+    "body": "Debit card ending in 9102 has been authorized for $15.00.",
+    "expected": null
+  },
+  {
+    "id": "neg-33",
+    "lang": "en",
+    "subject": "Payment method updated",
+    "body": "Payment method updated: Visa ending in 3849 is now primary.",
+    "expected": null
+  },
+  {
+    "id": "neg-34",
+    "lang": "en",
+    "subject": "Security transaction alert",
+    "body": "Alert: A transaction of $120.00 was made with card ending in 7261.",
+    "expected": null
+  },
+  {
+    "id": "neg-35",
+    "lang": "en",
+    "subject": "Card expiration notice",
+    "body": "Last 4 digits: 5829. Expiration date: 08/28.",
+    "expected": null
+  },
+  {
+    "id": "neg-36",
+    "lang": "en",
+    "subject": "Declined charge",
+    "body": "Card ending in 1928 was declined due to insufficient funds.",
+    "expected": null
+  },
+  {
+    "id": "neg-37",
+    "lang": "en",
+    "subject": "Sign in to Slack",
+    "body": "Click here to securely sign in to your Slack workspace.",
+    "expected": null
+  },
+  {
+    "id": "neg-38",
+    "lang": "en",
+    "subject": "Login link requested",
+    "body": "Login link requested: click the button below within 15 minutes.",
+    "expected": null
+  },
+  {
+    "id": "neg-39",
+    "lang": "en",
+    "subject": "Sign in to Notion",
+    "body": "Sign in to Notion: click this single-use link to continue.",
+    "expected": null
+  },
+  {
+    "id": "neg-40",
+    "lang": "en",
+    "subject": "Passwordless authentication",
+    "body": "Your passwordless login link is ready. Tap here to authenticate.",
+    "expected": null
+  },
+  {
+    "id": "neg-41",
+    "lang": "en",
+    "subject": "Confirm email address",
+    "body": "Follow this link to confirm your email address and activate your account.",
+    "expected": null
+  },
+  {
+    "id": "neg-42",
+    "lang": "en",
+    "subject": "Verify your email",
+    "body": "Click the link below to verify your email. No password needed.",
+    "expected": null
+  },
+  {
+    "id": "neg-43",
+    "lang": "en",
+    "subject": "Magic sign-in link",
+    "body": "Secure sign-in link: https://app.example.com/magic/abcdef123456",
+    "expected": null
+  },
+  {
+    "id": "neg-44",
+    "lang": "en",
+    "subject": "Password reset requested",
+    "body": "Password reset link requested. If this was you, click here.",
+    "expected": null
+  },
+  {
+    "id": "neg-45",
+    "lang": "en",
+    "subject": "Welcome aboard",
+    "body": "Welcome aboard! Verify your account by clicking the link inside.",
+    "expected": null
+  }
+]

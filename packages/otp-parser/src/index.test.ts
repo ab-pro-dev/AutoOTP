@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { extractOtp } from "./index.js";
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import { performance } from "node:perf_hooks";
+import { extractOtp, KEYWORD_TABLE } from "./index.js";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe("extractOtp", () => {
   describe("Sample sentences", () => {
@@ -85,6 +91,15 @@ describe("extractOtp", () => {
         confidence: "high"
       });
     });
+
+    it("supports hyphenated alphanumeric codes like ab12-cd34 normalized to ab12cd34", () => {
+      const result = extractOtp({ body: "Your temporary login code: ab12-cd34" });
+      expect(result).toEqual({
+        code: "ab12cd34",
+        raw: "ab12-cd34",
+        confidence: "high"
+      });
+    });
   });
 
   describe("Negative rejection cases", () => {
@@ -93,10 +108,11 @@ describe("extractOtp", () => {
       expect(extractOtp({ body: "Your order #482913 has shipped" })).toBeNull();
     });
 
-    it("rejects 4-digit years (1990-2100)", () => {
+    it("rejects 4-digit years (1900-2100)", () => {
       expect(extractOtp({ body: "Copyright 2026" })).toBeNull();
       expect(extractOtp({ body: "Happy new year 2026!" })).toBeNull();
       expect(extractOtp({ body: "Established in 1999" })).toBeNull();
+      expect(extractOtp({ body: "Founded in 1905" })).toBeNull();
     });
 
     it("rejects phone numbers", () => {
@@ -115,6 +131,15 @@ describe("extractOtp", () => {
 
     it("rejects numbers with 9 or more digits", () => {
       expect(extractOtp({ body: "Your verification code is 1234567890." })).toBeNull();
+    });
+
+    it("rejects card ending in numbers with penalty words", () => {
+      expect(extractOtp({ body: "Your card ending in 4821 was charged." })).toBeNull();
+    });
+
+    it("rejects dates and times", () => {
+      expect(extractOtp({ body: "Meeting scheduled for 2026-10-23 at 12:30." })).toBeNull();
+      expect(extractOtp({ body: "Reminder: Event on 10/23/2026 at 14:00." })).toBeNull();
     });
   });
 
@@ -160,6 +185,100 @@ describe("extractOtp", () => {
         body: `${padding} Your verification code is 483921.`
       });
       expect(result).toBeNull();
+    });
+
+    it("extracts valid code in email containing order number and total price", () => {
+      const result = extractOtp({
+        body: "Order #482913 shipped. Your verification code is 771204. Total: $59.00"
+      });
+      expect(result).toEqual({
+        code: "771204",
+        raw: "771204",
+        confidence: "high"
+      });
+    });
+  });
+
+  describe("Multilingual Support", () => {
+    it("contains all 8 required languages in KEYWORD_TABLE", () => {
+      const langs = KEYWORD_TABLE.map(k => k.language);
+      expect(langs).toEqual(expect.arrayContaining(["en", "es", "fr", "de", "pt", "it", "ar", "am"]));
+    });
+
+    it("extracts Arabic OTP with Unicode boundary", () => {
+      const result = extractOtp({ body: "رمز التحقق الخاص بك هو 556677" });
+      expect(result).toEqual({
+        code: "556677",
+        raw: "556677",
+        confidence: "high"
+      });
+    });
+
+    it("extracts Amharic OTP with Unicode boundary", () => {
+      const result = extractOtp({ body: "የማረጋገጫ ኮድዎ 394821 ነው" });
+      expect(result).toEqual({
+        code: "394821",
+        raw: "394821",
+        confidence: "high"
+      });
+    });
+  });
+
+  describe("Performance & Safety", () => {
+    it("processes adversarial 5000-character inputs in under 50 ms each", () => {
+      const inputs = [
+        { subject: "code", body: "1".repeat(5000) },
+        { subject: "", body: "code - ".repeat(800) },
+        { subject: "verification", body: "12-".repeat(1666) },
+        { subject: "", body: "ab12-cd34-".repeat(500) }
+      ];
+
+      for (const inp of inputs) {
+        const start = performance.now();
+        extractOtp(inp);
+        const duration = performance.now() - start;
+        expect(duration).toBeLessThan(50);
+      }
+    });
+  });
+
+  describe("Corpus Verification", () => {
+    it("passes 100% on fixture corpus", () => {
+      const corpusPath = resolve(__dirname, "../fixtures/corpus.json");
+      const corpus = JSON.parse(readFileSync(corpusPath, "utf-8"));
+
+      let posPassed = 0;
+      let posTotal = 0;
+      let negPassed = 0;
+      let negTotal = 0;
+      const failedIds: string[] = [];
+
+      for (const item of corpus) {
+        const res = extractOtp({ subject: item.subject, body: item.body });
+        const code = res ? res.code : null;
+
+        if (item.expected !== null) {
+          posTotal++;
+          if (code === item.expected) {
+            posPassed++;
+          } else {
+            failedIds.push(item.id);
+          }
+        } else {
+          negTotal++;
+          if (code === null) {
+            negPassed++;
+          } else {
+            failedIds.push(item.id);
+          }
+        }
+      }
+
+      expect(failedIds).toEqual([]);
+      expect(posPassed).toBe(posTotal);
+      expect(negPassed).toBe(negTotal);
+      expect(posTotal).toBeGreaterThanOrEqual(60);
+      expect(negTotal).toBeGreaterThanOrEqual(40);
     });
   });
 });
