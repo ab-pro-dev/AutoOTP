@@ -281,4 +281,94 @@ describe("extractOtp", () => {
       expect(negTotal).toBeGreaterThanOrEqual(40);
     });
   });
+
+  describe("Web addresses and token-like strings filtering", () => {
+    it("ignores candidate fragments inside URLs", () => {
+      expect(
+        extractOtp({
+          subject: "Verification link",
+          body: "Click https://example.com/verify?token=849201 to complete login."
+        })
+      ).toBeNull();
+
+      expect(
+        extractOtp({
+          subject: "Confirm account",
+          body: "Visit www.example.com/auth/849201/confirm now."
+        })
+      ).toBeNull();
+    });
+
+    it("extracts real code when a URL appears in the same email", () => {
+      expect(
+        extractOtp({
+          subject: "Your code",
+          body: "Your verification code is 849201. Enter it at https://example.com/login."
+        })
+      ).toEqual({
+        code: "849201",
+        raw: "849201",
+        confidence: "high"
+      });
+    });
+
+    it("rejects candidate when part of a longer run of 12 or more [A-Za-z0-9_-] characters", () => {
+      expect(
+        extractOtp({
+          subject: "Your code",
+          body: "Your token is sess_849201_abcdefghij."
+        })
+      ).toBeNull();
+
+      expect(
+        extractOtp({
+          subject: "Tracking code",
+          body: "Your verification code is token-849201-fragment."
+        })
+      ).toBeNull();
+    });
+
+    it("allows hyphenated codes of up to 17 characters delimited by whitespace/punctuation", () => {
+      expect(
+        extractOtp({
+          subject: "Your code",
+          body: "Your verification code is ab12-cd34."
+        })
+      ).toEqual({
+        code: "ab12cd34",
+        raw: "ab12-cd34",
+        confidence: "high"
+      });
+    });
+
+    it("rejects candidates preceded or followed by =, / or %", () => {
+      expect(
+        extractOtp({
+          subject: "Your code",
+          body: "code=849201 is required."
+        })
+      ).toBeNull();
+
+      expect(
+        extractOtp({
+          subject: "Your code",
+          body: "Your code is 849201=."
+        })
+      ).toBeNull();
+
+      expect(
+        extractOtp({
+          subject: "Your code",
+          body: "Path is /849201/."
+        })
+      ).toBeNull();
+
+      expect(
+        extractOtp({
+          subject: "Your code",
+          body: "Discount %849201 or 849201%."
+        })
+      ).toBeNull();
+    });
+  });
 });

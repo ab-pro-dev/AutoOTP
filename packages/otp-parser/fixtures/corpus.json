@@ -455,6 +455,27 @@
     "expected": "582910"
   },
   {
+    "id": "pos-66",
+    "lang": "en",
+    "subject": "Your verification code",
+    "body": "Your verification code is 849201. Enter this code at https://example.com/verify to complete sign in.",
+    "expected": "849201"
+  },
+  {
+    "id": "pos-67",
+    "lang": "en",
+    "subject": "One-Time Password",
+    "body": "Your security code is 738204.\n\nIf you did not request this, visit www.example.com/help or contact https://support.example.com/report?id=1234567890abcdef.",
+    "expected": "738204"
+  },
+  {
+    "id": "pos-68",
+    "lang": "en",
+    "subject": "Login confirmation code",
+    "body": "Use confirmation code 582910 to sign in. To learn more about two-factor authentication, visit https://security.example.org/2fa?utm_source=login.",
+    "expected": "582910"
+  },
+  {
     "id": "neg-01",
     "lang": "en",
     "subject": "Your order has shipped",
@@ -767,6 +788,76 @@
     "lang": "en",
     "subject": "Welcome aboard",
     "body": "Welcome aboard! Verify your account by clicking the link inside.",
+    "expected": null
+  },
+  {
+    "id": "neg-46",
+    "lang": "en",
+    "subject": "Your magic sign-in link",
+    "body": "Click here to sign in: https://example.com/magic?token=eyJhbGciOiJIUzI1NiJ9.849201.signature",
+    "expected": null
+  },
+  {
+    "id": "neg-47",
+    "lang": "en",
+    "subject": "Confirm your login request",
+    "body": "To verify your login, follow this link: https://auth.service.com/verify?auth=aHR0cHM6Ly9leGFtcGxlLmNvbS84NDkyMDE=",
+    "expected": null
+  },
+  {
+    "id": "neg-48",
+    "lang": "en",
+    "subject": "Complete your verification",
+    "body": "Verify your email: https://site.org/confirm?utm_source=email&utm_campaign=verify_849201_campaign&utm_medium=web",
+    "expected": null
+  },
+  {
+    "id": "neg-49",
+    "lang": "en",
+    "subject": "Security updates for your account",
+    "body": "Manage your preferences or unsubscribe: https://mail.service.com/unsubscribe?id=9a8b7c6d5e4f1234567890abcdef",
+    "expected": null
+  },
+  {
+    "id": "neg-50",
+    "lang": "en",
+    "subject": "One-click login link",
+    "body": "Use this link to verify: https://login.app.io/magic-link?key=sec_9876543210fedcba",
+    "expected": null
+  },
+  {
+    "id": "neg-51",
+    "lang": "en",
+    "subject": "Verify account email",
+    "body": "Click to confirm: https://accounts.example.org/confirm/tokens/AB12CD34EF56GH78/accept",
+    "expected": null
+  },
+  {
+    "id": "neg-52",
+    "lang": "en",
+    "subject": "Verify your new device",
+    "body": "Verify device login: www.secure-app.com/device/confirm?session=sess_abcdef123456&utm_content=849201",
+    "expected": null
+  },
+  {
+    "id": "neg-53",
+    "lang": "en",
+    "subject": "Confirm newsletter subscription",
+    "body": "Please confirm your subscription: https://news.example.com/sub/confirm?hash=7766554433221100aabbccddeeff&code=pending",
+    "expected": null
+  },
+  {
+    "id": "neg-54",
+    "lang": "en",
+    "subject": "Security notice for code review",
+    "body": "To view online: https://view.example.com/e/849201a1b2c3d4e5f6?tracking=none or unsubscribe: https://example.com/unsub/1234567890",
+    "expected": null
+  },
+  {
+    "id": "neg-55",
+    "lang": "en",
+    "subject": "Sign in to your account",
+    "body": "Here is your passwordless link: https://auth.company.com/sso?assertion=PHNlc3Npb24taWQ9ODQ5MjAxPjwvc2Vzc2lvbj4=",
     "expected": null
   }
 ]

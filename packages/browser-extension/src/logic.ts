@@ -229,34 +229,8 @@ export function formatOtpDisplay(
   return `${otp.sender} ${otp.code} ${age}`;
 }
 
-/**
- * Built-in approximation of the Public Suffix List (PSL).
- * Contains common two-part ccTLDs and hosting platforms where subdomains
- * represent distinct and unrelated sites.
- */
-export const MULTI_PART_PUBLIC_SUFFIXES = new Set([
-  "co.uk",
-  "org.uk",
-  "ac.uk",
-  "gov.uk",
-  "com.au",
-  "net.au",
-  "co.jp",
-  "co.in",
-  "co.za",
-  "com.br",
-  "com.et",
-  "gov.et",
-  "edu.et",
-  "github.io",
-  "vercel.app",
-  "netlify.app",
-  "pages.dev",
-  "herokuapp.com",
-  "blogspot.com",
-  "web.app",
-  "firebaseapp.com"
-]);
+import { MULTI_PART_PUBLIC_SUFFIXES } from "@autootp/shared/public-suffix";
+export { MULTI_PART_PUBLIC_SUFFIXES };
 
 function isIpAddressOrLocalhost(host: string): boolean {
   if (host === "localhost" || host.endsWith(".localhost")) {

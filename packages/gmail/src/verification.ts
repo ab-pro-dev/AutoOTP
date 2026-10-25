@@ -1,3 +1,5 @@
+import { MULTI_PART_PUBLIC_SUFFIXES } from "@autootp/shared";
+
 export interface HeaderItem {
   name: string;
   value: string;
@@ -121,7 +123,13 @@ export function isSenderVerified(
         return false;
       }
       const fromValue = (propMatch[1] ?? propMatch[2]).trim().toLowerCase();
-      if (fromValue !== cleanSenderDomain) {
+      const isExactMatch = fromValue === cleanSenderDomain;
+      const isRelaxedParentMatch =
+        cleanSenderDomain.endsWith("." + fromValue) &&
+        fromValue.split(".").filter(Boolean).length >= 2 &&
+        !MULTI_PART_PUBLIC_SUFFIXES.has(fromValue);
+
+      if (!isExactMatch && !isRelaxedParentMatch) {
         return false;
       }
       hasDmarcPass = true;

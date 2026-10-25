@@ -9,6 +9,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./public-suffix": {
+      "types": "./dist/public-suffix.d.ts",
+      "import": "./dist/public-suffix.js",
+      "default": "./dist/public-suffix.js"
     }
   }
 }

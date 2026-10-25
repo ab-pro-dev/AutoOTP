@@ -2493,6 +2493,201 @@ describe("CLI utilities and commands", () => {
       expect(out).not.toContain("context:");
       expect(out).not.toContain("auth:");
     });
+
+    it("always prints Listed: <n>, fetched: <m>, failed: <k>", async () => {
+      const store = new TokenStore(tempDir);
+      await store.set("personal", {
+        refreshToken: "mock-token",
+        email: "personal@example.com",
+        addedAt: Date.now()
+      });
+
+      const mockFetch: typeof fetch = async (input) => {
+        const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          return new Response(JSON.stringify({ access_token: "mock-token", expires_in: 3600 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("gmail/v1/users/me/messages?")) {
+          return new Response(JSON.stringify({ messages: [{ id: "msg-1" }, { id: "msg-2" }] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("msg-1") || urlStr.includes("msg-2")) {
+          const msgData = makeMockMessage({
+            id: "msg",
+            from: "Service <service@test.com>",
+            subject: "Your code",
+            body: "Your code is 654321."
+          });
+          return new Response(JSON.stringify(msgData), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        return new Response("Not Found", { status: 404 });
+      };
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await auditAction(
+          { days: 14 },
+          {
+            homeDir: tempDir,
+            fetchImpl: mockFetch,
+            initialBackoffMs: 1,
+            sleepFn: async () => {}
+          }
+        );
+      } finally {
+        console.log = origLog;
+      }
+
+      const out = lines.join("\n");
+      expect(out).toContain("Listed: 2, fetched: 2, failed: 0");
+    });
+
+    it("retries failed fetch up to 3 times, prints warning and exits with code 3 when fetch fails", async () => {
+      const store = new TokenStore(tempDir);
+      await store.set("personal", {
+        refreshToken: "mock-token",
+        email: "personal@example.com",
+        addedAt: Date.now()
+      });
+
+      let fetchAttempts = 0;
+      const mockFetch: typeof fetch = async (input) => {
+        const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          return new Response(JSON.stringify({ access_token: "mock-token", expires_in: 3600 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("gmail/v1/users/me/messages?")) {
+          return new Response(JSON.stringify({ messages: [{ id: "msg-fail" }] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("msg-fail")) {
+          fetchAttempts++;
+          return new Response("Server Error", { status: 500 });
+        }
+
+        return new Response("Not Found", { status: 404 });
+      };
+
+      let exitCode: number | undefined;
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await auditAction(
+          { days: 14 },
+          {
+            homeDir: tempDir,
+            fetchImpl: mockFetch,
+            initialBackoffMs: 1,
+            sleepFn: async () => {},
+            exitImpl: (code) => {
+              exitCode = code;
+            }
+          }
+        );
+      } finally {
+        console.log = origLog;
+      }
+
+      // 1 initial attempt + 3 retries = 4 attempts total
+      expect(fetchAttempts).toBe(4);
+      const out = lines.join("\n");
+      expect(out).toContain("Listed: 1, fetched: 0, failed: 1");
+      expect(out).toContain("WARNING: 1 messages could not be fetched; results are incomplete");
+      expect(exitCode).toBe(3);
+    });
+
+    it("--explain masks URLs as <URL> and any run of 12+ [A-Za-z0-9_-] characters as <TOKEN>", async () => {
+      const store = new TokenStore(tempDir);
+      await store.set("personal", {
+        refreshToken: "mock-token",
+        email: "personal@example.com",
+        addedAt: Date.now()
+      });
+
+      const mockFetch: typeof fetch = async (input) => {
+        const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          return new Response(JSON.stringify({ access_token: "mock-token", expires_in: 3600 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("gmail/v1/users/me/messages?")) {
+          return new Response(JSON.stringify({ messages: [{ id: "msg-url-token" }] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("msg-url-token")) {
+          const msgData = makeMockMessage({
+            id: "msg-url-token",
+            from: "Service <service@tokens.com>",
+            subject: "Your code",
+            body: "Your verification code is 849201. Link: https://auth.example.com/magic?sess_token_1234567890=true with token sec_token_abcdef123456."
+          });
+          return new Response(JSON.stringify(msgData), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        return new Response("Not Found", { status: 404 });
+      };
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await auditAction(
+          { days: 14, explain: true },
+          {
+            homeDir: tempDir,
+            fetchImpl: mockFetch,
+            initialBackoffMs: 1,
+            sleepFn: async () => {}
+          }
+        );
+      } finally {
+        console.log = origLog;
+      }
+
+      const out = lines.join("\n");
+      const contextLine = lines.find((l) => l.trim().startsWith("context:"));
+      expect(contextLine).toBeDefined();
+      expect(contextLine).toContain("<CODE:6 digits>");
+      expect(contextLine).toContain("<TOKEN>");
+      expect(contextLine).not.toContain("sec_token_abcdef123456");
+      expect(out).not.toMatch(/[A-Za-z0-9_-]{20,}/);
+    });
   });
 });
 

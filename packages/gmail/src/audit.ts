@@ -46,6 +46,9 @@ export interface AuditMessageItem {
 
 export interface AccountAuditResult {
   accountId: string;
+  listedCount: number;
+  fetchedCount: number;
+  failedCount: number;
   messages: AuditMessageItem[];
 }
 
@@ -238,6 +241,12 @@ export function maskContextWindow(
     }
   }
 
+  const maskUrls = (str: string) =>
+    str.replace(/(?:https?:\/\/|www\.)[^\s<>"'`)]+/gi, "<URL>");
+
+  const maskTokens = (str: string) =>
+    str.replace(/[A-Za-z0-9_-]{12,}/g, "<TOKEN>");
+
   const maskEmailLocalParts = (str: string) => {
     let res = str.replace(/\b[A-Za-z0-9._%+-]+(@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b)/g, "***$1");
     for (const lp of extraLocalParts) {
@@ -258,10 +267,14 @@ export function maskContextWindow(
     );
 
     let before = cleanContextSnippet(beforeRaw);
+    before = maskUrls(before);
+    before = maskTokens(before);
     before = maskEmailLocalParts(before);
     before = maskOtherDigits(before);
 
     let after = cleanContextSnippet(afterRaw);
+    after = maskUrls(after);
+    after = maskTokens(after);
     after = maskEmailLocalParts(after);
     after = maskOtherDigits(after);
 
@@ -298,10 +311,14 @@ export function maskContextWindow(
     );
 
     let before = cleanContextSnippet(beforeRaw);
+    before = maskUrls(before);
+    before = maskTokens(before);
     before = maskEmailLocalParts(before);
     before = maskOtherDigits(before);
 
     let after = cleanContextSnippet(afterRaw);
+    after = maskUrls(after);
+    after = maskTokens(after);
     after = maskEmailLocalParts(after);
     after = maskOtherDigits(after);
 
@@ -314,6 +331,8 @@ export function maskContextWindow(
 
   // If no keyword either, take up to 80 chars of body
   let snippet = cleanContextSnippet(targetText.slice(0, 80));
+  snippet = maskUrls(snippet);
+  snippet = maskTokens(snippet);
   snippet = maskEmailLocalParts(snippet);
   snippet = maskOtherDigits(snippet);
   if (snippet.length > 100) {
@@ -415,13 +434,13 @@ export async function auditAccount(options: AuditAccountOptions): Promise<Accoun
       const idx = nextIdx++;
       const msgId = messageIds[idx];
 
-      let attempt = 0;
+      const MAX_RETRIES = 3;
+      let retries = 0;
       let backoff = initialBackoffMs;
       let msgData: GmailMessage | null = null;
 
-      while (attempt < 5) {
+      while (retries <= MAX_RETRIES) {
         if (signal?.aborted) break;
-        attempt++;
         let res: Response;
         try {
           res = await fetchImpl(
@@ -433,25 +452,31 @@ export async function auditAccount(options: AuditAccountOptions): Promise<Accoun
             }
           );
         } catch {
-          if (attempt >= 5) break;
-          await sleepFn(backoff);
-          backoff = Math.min(backoff * 2, maxBackoffMs);
-          continue;
-        }
-
-        if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
-          if (attempt >= 5) break;
+          if (retries >= MAX_RETRIES) break;
+          retries++;
           await sleepFn(backoff);
           backoff = Math.min(backoff * 2, maxBackoffMs);
           continue;
         }
 
         if (!res.ok) {
-          break;
+          if (retries >= MAX_RETRIES) break;
+          retries++;
+          await sleepFn(backoff);
+          backoff = Math.min(backoff * 2, maxBackoffMs);
+          continue;
         }
 
-        msgData = (await res.json()) as GmailMessage;
-        break;
+        try {
+          msgData = (await res.json()) as GmailMessage;
+          break;
+        } catch {
+          if (retries >= MAX_RETRIES) break;
+          retries++;
+          await sleepFn(backoff);
+          backoff = Math.min(backoff * 2, maxBackoffMs);
+          continue;
+        }
       }
 
       if (!msgData) continue;
@@ -543,8 +568,16 @@ export async function auditAccount(options: AuditAccountOptions): Promise<Accoun
 
   await Promise.all(workers);
 
+  const messages = results.filter((m): m is AuditMessageItem => m !== null);
+  const listedCount = messageIds.length;
+  const fetchedCount = messages.length;
+  const failedCount = listedCount - fetchedCount;
+
   return {
     accountId,
-    messages: results.filter((m): m is AuditMessageItem => m !== null)
+    listedCount,
+    fetchedCount,
+    failedCount,
+    messages
   };
 }

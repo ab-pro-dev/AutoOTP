@@ -384,6 +384,41 @@ function scanSection(
     if (!norm) continue;
     const { code, isAlnum } = norm;
 
+    // Reject candidates preceded or followed by "=", "/" or "%"
+    const charBefore = startIndex > 0 ? text[startIndex - 1] : "";
+    const charAfter = endIndex < text.length ? text[endIndex] : "";
+    if (
+      charBefore === "=" ||
+      charBefore === "/" ||
+      charBefore === "%" ||
+      charAfter === "=" ||
+      charAfter === "/" ||
+      charAfter === "%"
+    ) {
+      continue;
+    }
+
+    // A candidate is rejected if it is part of a longer run of [A-Za-z0-9_-] characters of 12 or more characters
+    // (this excludes hyphenated codes like ab12-cd34, which are at most 17 characters in total but only count when delimited by whitespace or punctuation on both sides).
+    let runStart = startIndex;
+    while (runStart > 0 && /[A-Za-z0-9_-]/.test(text[runStart - 1])) {
+      runStart--;
+    }
+    let runEnd = endIndex;
+    while (runEnd < text.length && /[A-Za-z0-9_-]/.test(text[runEnd])) {
+      runEnd++;
+    }
+    const runLength = runEnd - runStart;
+    if (runLength >= 12) {
+      const isLongerRun = runStart < startIndex || runEnd > endIndex;
+      if (isLongerRun) {
+        continue;
+      }
+      if (!raw.includes("-") || raw.length > 17) {
+        continue;
+      }
+    }
+
     // Hard rejections:
     if (code.length > 10) continue;
     if (isYear(code)) continue;
@@ -491,15 +526,27 @@ function scanSection(
 }
 
 /**
+ * Replaces http(s):// and www. URLs with a space.
+ */
+export function stripUrls(text: string): string {
+  if (!text) return "";
+  return text.replace(/(?:https?:\/\/|www\.)[^\s<>"'`)]+/gi, " ");
+}
+
+/**
  * Extracts the best OTP candidate from an email input.
  */
 export function extractOtp(input: OtpInput): OtpResult | null {
   const subjectRaw = input.subject?.trim() ?? "";
   const bodyRaw = input.body ?? "";
 
-  const subjectScanned = subjectRaw.slice(0, 5000);
+  // Before scanning, replace http(s):// and www. URLs with a space
+  const subjectClean = stripUrls(subjectRaw);
+  const bodyClean = stripUrls(bodyRaw);
+
+  const subjectScanned = subjectClean.slice(0, 5000);
   const remainingBudget = 5000 - subjectScanned.length;
-  const bodyScanned = remainingBudget > 0 ? bodyRaw.slice(0, remainingBudget) : "";
+  const bodyScanned = remainingBudget > 0 ? bodyClean.slice(0, remainingBudget) : "";
 
   const subjectHasKw = hasSubjectKeyword(subjectScanned);
 

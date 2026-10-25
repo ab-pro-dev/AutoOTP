@@ -1513,6 +1513,43 @@ describe("Gmail Watcher (packages/gmail)", () => {
       ).toBe(false);
     });
 
+    it("handles relaxed DMARC alignment properly", () => {
+      expect(
+        isSenderVerified(
+          H("mx.google.com; dmarc=pass header.from=claude.com"),
+          "email.claude.com"
+        )
+      ).toBe(true);
+
+      expect(
+        isSenderVerified(
+          H("mx.google.com; dmarc=pass header.from=github.io"),
+          "evil.github.io"
+        )
+      ).toBe(false);
+
+      expect(
+        isSenderVerified(
+          H("mx.google.com; dmarc=pass header.from=co.uk"),
+          "a.co.uk"
+        )
+      ).toBe(false);
+
+      expect(
+        isSenderVerified(
+          H("mx.google.com; dmarc=pass header.from=github.com"),
+          "mail.github.com"
+        )
+      ).toBe(true);
+
+      expect(
+        isSenderVerified(
+          H("mx.google.com; dmarc=pass header.from=mail.github.com"),
+          "github.com"
+        )
+      ).toBe(false);
+    });
+
     it("watcher adds senderVerified boolean to every OTP notification it emits", async () => {
       const store = new TokenStore(tempDir);
       await store.set("acc-verified-test", {

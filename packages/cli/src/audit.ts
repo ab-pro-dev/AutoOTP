@@ -86,6 +86,9 @@ export async function auditAction(
   }
 
   const allMessages: AuditMessageItem[] = [];
+  let totalListed = 0;
+  let totalFetched = 0;
+  let totalFailed = 0;
 
   for (const alias of aliases) {
     try {
@@ -99,6 +102,9 @@ export async function auditAction(
         signal: context.signal
       });
       allMessages.push(...res.messages);
+      totalListed += res.listedCount;
+      totalFetched += res.fetchedCount;
+      totalFailed += res.failedCount;
     } catch (err: unknown) {
       const error = err instanceof Error ? err : new Error(String(err));
       if (
@@ -151,6 +157,13 @@ export async function auditAction(
       totalPossibleFalsePositives++;
       addEntry(falsePositiveGroups, domain, cleanSubj);
     }
+  }
+
+  console.log(`Listed: ${totalListed}, fetched: ${totalFetched}, failed: ${totalFailed}`);
+  if (totalFailed > 0) {
+    console.log(
+      `WARNING: ${totalFailed} messages could not be fetched; results are incomplete`
+    );
   }
 
   console.log("Summary:");
@@ -246,5 +259,9 @@ export async function auditAction(
     printExplainGroup("Unverified senders", unverifiedMsgs, true);
     printExplainGroup("Possible false positives", falsePositiveMsgs, false);
     printExplainGroup("Possible misses", missMsgs, false);
+  }
+
+  if (totalFailed > 0) {
+    exit(3);
   }
 }
