@@ -15,6 +15,7 @@ import {
   historyAction,
   clearAction,
   doctorAction,
+  auditAction,
   CommandContext
 } from "./commands.js";
 
@@ -124,6 +125,16 @@ export function createProgram(context: CommandContext = {}): Command {
     .description("Check AutoOTP system health and prerequisites")
     .action(async () => {
       await doctorAction(context);
+    });
+
+  program
+    .command("audit")
+    .description("Read-only calibration tool for analyzing OTP detection on real inbox messages")
+    .option("--days <days>", "Number of days to audit (1 to 60)", "14")
+    .option("--account <alias>", "Account alias to audit (default: all accounts)")
+    .option("--subjects", "Include sanitized email subjects in domain groups", false)
+    .action(async (opts: { days?: string; account?: string; subjects?: boolean }) => {
+      await auditAction(opts, context);
     });
 
   return program;

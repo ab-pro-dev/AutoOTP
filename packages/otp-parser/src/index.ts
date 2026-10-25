@@ -153,11 +153,18 @@ interface ScoredCandidate {
 }
 
 /**
+ * Checks if a string contains any OTP-related keyword from KEYWORD_TABLE.
+ */
+export function containsKeyword(text?: string): boolean {
+  if (!text) return false;
+  return KEYWORD_TEST_REGEX.test(text);
+}
+
+/**
  * Checks if the subject line contains an OTP-related keyword.
  */
 export function hasSubjectKeyword(subject?: string): boolean {
-  if (!subject) return false;
-  return KEYWORD_TEST_REGEX.test(subject);
+  return containsKeyword(subject);
 }
 
 /**

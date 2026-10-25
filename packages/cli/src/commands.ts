@@ -288,6 +288,7 @@ export async function clearAction(context: CommandContext = {}): Promise<void> {
 
 export * from "./autostart.js";
 export * from "./doctor.js";
+export * from "./audit.js";
 
 
 

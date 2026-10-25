@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getEventListeners } from "node:events";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { TokenStore, loadConfig, saveConfig, HistoryStore, writeStatus, VERSION } from "@autootp/shared";
 import {
   validateAlias,
@@ -25,7 +25,8 @@ import {
   configSetAction,
   historyAction,
   clearAction,
-  doctorAction
+  doctorAction,
+  auditAction
 } from "./commands.js";
 import {
   generateSystemdUnit,
@@ -1697,6 +1698,514 @@ describe("CLI utilities and commands", () => {
       expect(allOutput).not.toContain(secretToken);
       expect(allOutput).not.toContain(pairToken);
       expect(allOutput).not.toMatch(/\b\d{6,8}\b/);
+    });
+  });
+
+  describe("Audit Command", () => {
+    beforeEach(() => {
+      fs.writeFileSync(
+        path.join(tempDir, "credentials.json"),
+        JSON.stringify({
+          installed: { client_id: "mock-id", client_secret: "mock-sec" }
+        }),
+        { mode: 0o600 }
+      );
+    });
+
+    function makeMockMessage(options: {
+      id: string;
+      from: string;
+      subject: string;
+      body: string;
+      authResults?: string;
+    }) {
+      const headers = [
+        { name: "From", value: options.from },
+        { name: "Subject", value: options.subject }
+      ];
+      if (options.authResults) {
+        headers.push({ name: "Authentication-Results", value: options.authResults });
+      }
+
+      const encodedBody = Buffer.from(options.body).toString("base64url");
+      return {
+        id: options.id,
+        payload: {
+          headers,
+          mimeType: "text/plain",
+          body: { data: encodedBody }
+        }
+      };
+    }
+
+    it("validates --days and exits 1 for invalid values", async () => {
+      const invalidValues = ["0", "61", "abc", "1.5", "-5"];
+      for (const val of invalidValues) {
+        let exitCode: number | undefined;
+        const errLines: string[] = [];
+        const origErr = console.error;
+        console.error = (msg: string) => errLines.push(msg);
+
+        try {
+          await auditAction(
+            { days: val },
+            {
+              homeDir: tempDir,
+              exitImpl: (code) => {
+                exitCode = code;
+              }
+            }
+          );
+        } finally {
+          console.error = origErr;
+        }
+
+        expect(exitCode).toBe(1);
+        expect(errLines.some((l) => l.includes(`Invalid value for --days: ${val}`))).toBe(true);
+      }
+    });
+
+    it("correctly classifies each bucket: detected & verified, detected & unverified, possible miss, possible false positive", async () => {
+      const store = new TokenStore(tempDir);
+      await store.set("personal", {
+        refreshToken: "mock-refresh-token",
+        email: "test@example.com",
+        addedAt: Date.now()
+      });
+
+      const mockMessages: Record<string, any> = {
+        msg1: makeMockMessage({
+          id: "msg1",
+          from: "GitHub <noreply@github.com>",
+          subject: "Your GitHub verification code",
+          body: "Your verification code is 849201.",
+          authResults: "mx.google.com; dmarc=pass header.from=github.com"
+        }),
+        msg2: makeMockMessage({
+          id: "msg2",
+          from: "Security <noreply@unverified.org>",
+          subject: "Your security code",
+          body: "Your verification code is 739102."
+        }),
+        msg3: makeMockMessage({
+          id: "msg3",
+          from: "Support <support@service.com>",
+          subject: "Account Confirmation",
+          body: "Your verification code was sent by SMS. Please click here to login."
+        }),
+        msg4: makeMockMessage({
+          id: "msg4",
+          from: "Alerts <alerts@mediumconf.com>",
+          subject: "Your verification code",
+          body: "Hello,\n\n483921\n\nThanks"
+        }),
+        msg5: makeMockMessage({
+          id: "msg5",
+          from: "System <system@strange.com>",
+          subject: "Account Status",
+          body: "12345678 is your Google verification code"
+        })
+      };
+
+      const mockFetch: typeof fetch = async (input) => {
+        const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          return new Response(JSON.stringify({ access_token: "mock-access-token", expires_in: 3600 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("gmail/v1/users/me/messages?")) {
+          return new Response(
+            JSON.stringify({
+              messages: Object.keys(mockMessages).map((id) => ({ id }))
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+
+        for (const [id, msgData] of Object.entries(mockMessages)) {
+          if (urlStr.includes(`gmail/v1/users/me/messages/${id}`)) {
+            return new Response(JSON.stringify(msgData), {
+              status: 200,
+              headers: { "Content-Type": "application/json" }
+            });
+          }
+        }
+
+        return new Response("Not Found", { status: 404 });
+      };
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await auditAction(
+          { days: 14, subjects: true },
+          {
+            homeDir: tempDir,
+            fetchImpl: mockFetch,
+            initialBackoffMs: 1,
+            sleepFn: async () => {}
+          }
+        );
+      } finally {
+        console.log = origLog;
+      }
+
+      const out = lines.join("\n");
+      expect(out).toContain("Scanned: 5");
+      expect(out).toContain("Detected: 4");
+      expect(out).toContain("Detected and verified: 1");
+      expect(out).toContain("Detected and unverified: 3");
+      expect(out).toContain("Possible misses: 1");
+      expect(out).toContain("Possible false positives: 2");
+
+      expect(out).toContain("github.com: 1");
+      expect(out).toContain("unverified.org: 1");
+      expect(out).toContain("service.com: 1");
+      expect(out).toContain("mediumconf.com: 1");
+      expect(out).toContain("strange.com: 1");
+    });
+
+    it("respects the 200 message cap when paginating", async () => {
+      const store = new TokenStore(tempDir);
+      await store.set("personal", {
+        refreshToken: "mock-refresh-token",
+        email: "test@example.com",
+        addedAt: Date.now()
+      });
+
+      let page3Fetched = false;
+      const fetchedIds: string[] = [];
+
+      const mockFetch: typeof fetch = async (input) => {
+        const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          return new Response(JSON.stringify({ access_token: "mock-access-token", expires_in: 3600 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("gmail/v1/users/me/messages?")) {
+          if (urlStr.includes("pageToken=page2")) {
+            const messages = Array.from({ length: 100 }, (_, i) => ({ id: `msg-${i + 101}` }));
+            return new Response(JSON.stringify({ messages, nextPageToken: "page3" }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" }
+            });
+          }
+          if (urlStr.includes("pageToken=page3")) {
+            page3Fetched = true;
+            const messages = Array.from({ length: 50 }, (_, i) => ({ id: `msg-${i + 201}` }));
+            return new Response(JSON.stringify({ messages }), {
+              status: 200,
+              headers: { "Content-Type": "application/json" }
+            });
+          }
+          const messages = Array.from({ length: 100 }, (_, i) => ({ id: `msg-${i + 1}` }));
+          return new Response(JSON.stringify({ messages, nextPageToken: "page2" }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        const match = urlStr.match(/gmail\/v1\/users\/me\/messages\/(msg-\d+)/);
+        if (match) {
+          fetchedIds.push(match[1]);
+          const msgData = makeMockMessage({
+            id: match[1],
+            from: "Acme <noreply@acme.com>",
+            subject: "Update",
+            body: "No code here."
+          });
+          return new Response(JSON.stringify(msgData), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        return new Response("Not Found", { status: 404 });
+      };
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await auditAction(
+          { days: 14 },
+          {
+            homeDir: tempDir,
+            fetchImpl: mockFetch,
+            initialBackoffMs: 1,
+            sleepFn: async () => {}
+          }
+        );
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(page3Fetched).toBe(false);
+      expect(fetchedIds.length).toBe(200);
+      expect(lines.join("\n")).toContain("Scanned: 200");
+    });
+
+    it("backs off and retries on 429 response", async () => {
+      const store = new TokenStore(tempDir);
+      await store.set("personal", {
+        refreshToken: "mock-refresh-token",
+        email: "test@example.com",
+        addedAt: Date.now()
+      });
+
+      let attempts429 = 0;
+      const sleepCalls: number[] = [];
+      const mockSleep = async (ms: number) => {
+        sleepCalls.push(ms);
+      };
+
+      const mockFetch: typeof fetch = async (input) => {
+        const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          return new Response(JSON.stringify({ access_token: "mock-access-token", expires_in: 3600 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("gmail/v1/users/me/messages?")) {
+          return new Response(JSON.stringify({ messages: [{ id: "msg-retry" }] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("gmail/v1/users/me/messages/msg-retry")) {
+          attempts429++;
+          if (attempts429 === 1) {
+            return new Response("Too Many Requests", { status: 429 });
+          }
+          const msgData = makeMockMessage({
+            id: "msg-retry",
+            from: "Service <service@acme.com>",
+            subject: "Your code",
+            body: "Your verification code is 123456."
+          });
+          return new Response(JSON.stringify(msgData), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        return new Response("Not Found", { status: 404 });
+      };
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await auditAction(
+          { days: 14 },
+          {
+            homeDir: tempDir,
+            fetchImpl: mockFetch,
+            initialBackoffMs: 50,
+            sleepFn: mockSleep
+          }
+        );
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(attempts429).toBe(2);
+      expect(sleepCalls.length).toBeGreaterThanOrEqual(1);
+      expect(sleepCalls[0]).toBe(50);
+      expect(lines.join("\n")).toContain("Scanned: 1");
+      expect(lines.join("\n")).toContain("Detected: 1");
+    });
+
+    it("handles expired account with message and continues to audit other accounts", async () => {
+      const store = new TokenStore(tempDir);
+      await store.set("expired-acct", {
+        refreshToken: "expired-refresh-token",
+        email: "expired@example.com",
+        addedAt: Date.now() - 1000
+      });
+      await store.set("active-acct", {
+        refreshToken: "active-refresh-token",
+        email: "active@example.com",
+        addedAt: Date.now()
+      });
+
+      const mockFetch: typeof fetch = async (input, init) => {
+        const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          const bodyStr = String(init?.body ?? "");
+          if (bodyStr.includes("expired-refresh-token")) {
+            return new Response(JSON.stringify({ error: "invalid_grant" }), {
+              status: 400,
+              headers: { "Content-Type": "application/json" }
+            });
+          }
+          return new Response(JSON.stringify({ access_token: "active-token", expires_in: 3600 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("gmail/v1/users/me/messages?")) {
+          return new Response(JSON.stringify({ messages: [{ id: "active-msg" }] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("gmail/v1/users/me/messages/active-msg")) {
+          const msgData = makeMockMessage({
+            id: "active-msg",
+            from: "Service <service@active.com>",
+            subject: "Security Alert",
+            body: "Your verification code is 654321."
+          });
+          return new Response(JSON.stringify(msgData), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        return new Response("Not Found", { status: 404 });
+      };
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await auditAction(
+          { days: 14 },
+          {
+            homeDir: tempDir,
+            fetchImpl: mockFetch,
+            initialBackoffMs: 1,
+            sleepFn: async () => {}
+          }
+        );
+      } finally {
+        console.log = origLog;
+      }
+
+      const out = lines.join("\n");
+      expect(out).toContain("expired-acct: Google access expired. Run: autootp login expired-acct");
+      expect(out).toContain("Scanned: 1");
+      expect(out).toContain("active.com: 1");
+    });
+
+    it("never leaks sentinel code, body text, message ID, or token in output, and only shows subjects when --subjects is enabled", async () => {
+      const store = new TokenStore(tempDir);
+      const sentinelToken = "SENTINEL_TOKEN_SECRET_987654";
+      await store.set("personal", {
+        refreshToken: sentinelToken,
+        email: "personal@example.com",
+        addedAt: Date.now()
+      });
+
+      const sentinelCode = "998877";
+      const sentinelBody = "SENTINEL_EMAIL_BODY_TEXT_XYZ";
+      const sentinelMsgId = "SENTINEL_MSG_ID_ABCDEF";
+      const testSubject = "Unique Subject For Audit Calibration";
+
+      const mockFetch: typeof fetch = async (input) => {
+        const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          return new Response(JSON.stringify({ access_token: "mock-access-token", expires_in: 3600 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("gmail/v1/users/me/messages?")) {
+          return new Response(JSON.stringify({ messages: [{ id: sentinelMsgId }] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes(sentinelMsgId)) {
+          const msgData = makeMockMessage({
+            id: sentinelMsgId,
+            from: "Auth <auth@example.com>",
+            subject: testSubject,
+            body: `${sentinelBody}\nYour verification code is ${sentinelCode}.`
+          });
+          return new Response(JSON.stringify(msgData), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        return new Response("Not Found", { status: 404 });
+      };
+
+      // 1. Without --subjects
+      const linesWithoutSubjects: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => linesWithoutSubjects.push(msg);
+
+      try {
+        await auditAction(
+          { days: 14, subjects: false },
+          {
+            homeDir: tempDir,
+            fetchImpl: mockFetch,
+            initialBackoffMs: 1,
+            sleepFn: async () => {}
+          }
+        );
+      } finally {
+        console.log = origLog;
+      }
+
+      const outWithout = linesWithoutSubjects.join("\n");
+      expect(outWithout).not.toContain(sentinelCode);
+      expect(outWithout).not.toContain(sentinelBody);
+      expect(outWithout).not.toContain(sentinelToken);
+      expect(outWithout).not.toContain(sentinelMsgId);
+      expect(outWithout).not.toContain(testSubject);
+
+      // 2. With --subjects
+      const linesWithSubjects: string[] = [];
+      console.log = (msg: string) => linesWithSubjects.push(msg);
+
+      try {
+        await auditAction(
+          { days: 14, subjects: true },
+          {
+            homeDir: tempDir,
+            fetchImpl: mockFetch,
+            initialBackoffMs: 1,
+            sleepFn: async () => {}
+          }
+        );
+      } finally {
+        console.log = origLog;
+      }
+
+      const outWith = linesWithSubjects.join("\n");
+      expect(outWith).toContain(testSubject);
+      expect(outWith).not.toContain(sentinelCode);
+      expect(outWith).not.toContain(sentinelBody);
+      expect(outWith).not.toContain(sentinelToken);
+      expect(outWith).not.toContain(sentinelMsgId);
     });
   });
 });
