@@ -1,7 +1,13 @@
-import { extractOtp, containsKeyword } from "@autootp/otp-parser";
+import {
+  extractOtp,
+  containsKeyword,
+  scanKeywords,
+  getCandidateShape
+} from "@autootp/otp-parser";
 import { getHomeDir } from "@autootp/shared";
 import { OAuthCredentials, loadCredentials } from "./credentials.js";
 import { refreshAccessToken } from "./login.js";
+import { stripParentheticalComments, HeaderItem } from "./verification.js";
 import {
   parseSender,
   parseSenderDomain,
@@ -10,6 +16,14 @@ import {
   sleep,
   GmailMessage
 } from "./watcher.js";
+
+export interface AuditAuthInfo {
+  authservId: string | null;
+  verdicts: string[];
+  headerFrom: string | null;
+  headerD: string | null;
+  smtpMailfrom: string | null;
+}
 
 export interface AuditMessageItem {
   id: string;
@@ -23,6 +37,11 @@ export interface AuditMessageItem {
   confidence?: "high" | "medium";
   isPossibleMiss: boolean;
   isPossibleFalsePositive: boolean;
+  candidateShape?: string;
+  nearestKeyword?: string | null;
+  nearestKeywordDistance?: number | null;
+  authInfo?: AuditAuthInfo | null;
+  contextWindow?: string;
 }
 
 export interface AccountAuditResult {
@@ -40,6 +59,267 @@ export interface AuditAccountOptions {
   maxBackoffMs?: number;
   sleepFn?: (ms: number) => Promise<void>;
   signal?: AbortSignal;
+}
+
+/**
+ * Parses the first Authentication-Results header to extract verdicts and domains safely.
+ */
+export function parseAuthResults(headers: HeaderItem[]): AuditAuthInfo | null {
+  if (!Array.isArray(headers)) return null;
+
+  const authHeaders = headers.filter(
+    (h) => h && typeof h.name === "string" && h.name.toLowerCase() === "authentication-results"
+  );
+  if (authHeaders.length === 0) return null;
+
+  const rawHeader = authHeaders[0].value;
+  if (typeof rawHeader !== "string") return null;
+
+  const { text: cleaned, malformed } = stripParentheticalComments(rawHeader);
+  if (malformed || !cleaned.includes(";")) {
+    const authservId = cleaned.trim().split(/\s+/)[0] || null;
+    return {
+      authservId,
+      verdicts: [],
+      headerFrom: null,
+      headerD: null,
+      smtpMailfrom: null
+    };
+  }
+
+  const parts = cleaned.split(";");
+  const serverPart = parts[0].trim();
+  const serverTokens = serverPart.split(/\s+/).filter(Boolean);
+  const authservId = serverTokens.length > 0 ? serverTokens[0] : null;
+
+  const verdicts: string[] = [];
+  let headerFrom: string | null = null;
+  let headerD: string | null = null;
+  let smtpMailfrom: string | null = null;
+
+  for (let i = 1; i < parts.length; i++) {
+    const segment = parts[i].trim();
+    if (!segment) continue;
+
+    const methodMatch = segment.match(/^([a-zA-Z0-9_.-]+)\s*=\s*([a-zA-Z0-9_.-]+)/);
+    if (methodMatch) {
+      verdicts.push(`${methodMatch[1].toLowerCase()}=${methodMatch[2].toLowerCase()}`);
+    }
+
+    if (!headerFrom) {
+      const match = segment.match(/(?:^|\s)header\.from\s*=\s*(?:"([^"]*)"|([^\s;]+))/i);
+      if (match) {
+        headerFrom = (match[1] || match[2]).toLowerCase();
+      }
+    }
+
+    if (!headerD) {
+      const match = segment.match(/(?:^|\s)header\.d\s*=\s*(?:"([^"]*)"|([^\s;]+))/i);
+      if (match) {
+        headerD = (match[1] || match[2]).toLowerCase();
+      }
+    }
+
+    if (!smtpMailfrom) {
+      const match = segment.match(/(?:^|\s)smtp\.mailfrom\s*=\s*(?:"([^"]*)"|([^\s;]+))/i);
+      if (match) {
+        let rawMailfrom = match[1] || match[2];
+        rawMailfrom = rawMailfrom.replace(/^[<"]+|[>"]+$/g, "");
+        const at = rawMailfrom.lastIndexOf("@");
+        smtpMailfrom = (at !== -1 ? rawMailfrom.slice(at + 1) : rawMailfrom).toLowerCase();
+      }
+    }
+  }
+
+  return {
+    authservId,
+    verdicts,
+    headerFrom,
+    headerD,
+    smtpMailfrom
+  };
+}
+
+/**
+ * Normalizes a snippet for context window: strips markup, control chars, and newlines.
+ */
+export function cleanContextSnippet(text: string): string {
+  if (!text) return "";
+  let res = text
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+  res = res.replace(/<[^>]*>/g, " ");
+  res = res.replace(/[\x00-\x1F\x7F\r\n\t]/g, " ");
+  res = res.replace(/\s+/g, " ");
+  return res;
+}
+
+/**
+ * Finds the nearest keyword from KEYWORD_TABLE and its character distance to the candidate.
+ */
+export function findNearestKeyword(
+  body: string,
+  subject: string,
+  candRaw?: string
+): { keyword: string | null; distance: number | null } {
+  if (!candRaw) {
+    return { keyword: null, distance: null };
+  }
+
+  let targetText = body || "";
+  let candStart = targetText.indexOf(candRaw);
+
+  if (candStart === -1 && subject) {
+    const subjIdx = subject.indexOf(candRaw);
+    if (subjIdx !== -1) {
+      targetText = subject;
+      candStart = subjIdx;
+    }
+  }
+
+  if (candStart === -1) {
+    return { keyword: null, distance: null };
+  }
+
+  const candEnd = candStart + candRaw.length;
+  const matches = scanKeywords(targetText);
+
+  let bestKeyword: string | null = null;
+  let bestDist = Infinity;
+
+  for (const m of matches) {
+    const kwStart = m.index;
+    const kwEnd = kwStart + m.phrase.length;
+
+    let dist: number;
+    if (kwEnd <= candStart) {
+      dist = candStart - kwEnd;
+    } else if (kwStart >= candEnd) {
+      dist = kwStart - candEnd;
+    } else {
+      dist = 0;
+    }
+
+    if (dist < bestDist) {
+      bestDist = dist;
+      bestKeyword = m.phrase;
+    }
+  }
+
+  if (bestKeyword !== null && bestDist <= 80) {
+    return { keyword: bestKeyword, distance: bestDist };
+  }
+
+  return { keyword: null, distance: null };
+}
+
+/**
+ * Builds a masked context window (<= 40 chars before and after), replacing the candidate with
+ * <CODE:<shape>>, runs of 4+ digits with <N>, and stripping email local parts.
+ * Never exceeds 100 characters.
+ */
+export function maskContextWindow(
+  bodyText: string,
+  subjectText: string,
+  candRaw?: string,
+  shape: string = "none",
+  extraLocalParts: string[] = []
+): string {
+  let targetText = bodyText || "";
+  let idx = candRaw ? targetText.indexOf(candRaw) : -1;
+
+  if (idx === -1 && candRaw && subjectText) {
+    const subjIdx = subjectText.indexOf(candRaw);
+    if (subjIdx !== -1) {
+      targetText = subjectText;
+      idx = subjIdx;
+    }
+  }
+
+  const maskEmailLocalParts = (str: string) => {
+    let res = str.replace(/\b[A-Za-z0-9._%+-]+(@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b)/g, "***$1");
+    for (const lp of extraLocalParts) {
+      if (lp && lp.length >= 2) {
+        res = res.replaceAll(lp, "***");
+      }
+    }
+    return res;
+  };
+
+  const maskOtherDigits = (str: string) => str.replace(/\d{4,}/g, "<N>");
+
+  if (candRaw && idx !== -1) {
+    const beforeRaw = targetText.slice(Math.max(0, idx - 40), idx);
+    const afterRaw = targetText.slice(
+      idx + candRaw.length,
+      Math.min(targetText.length, idx + candRaw.length + 40)
+    );
+
+    let before = cleanContextSnippet(beforeRaw);
+    before = maskEmailLocalParts(before);
+    before = maskOtherDigits(before);
+
+    let after = cleanContextSnippet(afterRaw);
+    after = maskEmailLocalParts(after);
+    after = maskOtherDigits(after);
+
+    const token = `<CODE:${shape}>`;
+    let result = `${before}${token}${after}`.trim();
+    if (result.length > 100) {
+      result = result.slice(0, 100);
+    }
+    return result;
+  }
+
+  // Fallback when no candidate (e.g. possible miss): find nearest keyword in body or subject
+  let kwIdx = -1;
+  let kwLen = 0;
+  const kwMatches = scanKeywords(targetText);
+  if (kwMatches.length > 0) {
+    kwIdx = kwMatches[0].index;
+    kwLen = kwMatches[0].phrase.length;
+  } else if (subjectText) {
+    const subjMatches = scanKeywords(subjectText);
+    if (subjMatches.length > 0) {
+      targetText = subjectText;
+      kwIdx = subjMatches[0].index;
+      kwLen = subjMatches[0].phrase.length;
+    }
+  }
+
+  if (kwIdx !== -1) {
+    const beforeRaw = targetText.slice(Math.max(0, kwIdx - 40), kwIdx);
+    const kwText = targetText.slice(kwIdx, kwIdx + kwLen);
+    const afterRaw = targetText.slice(
+      kwIdx + kwLen,
+      Math.min(targetText.length, kwIdx + kwLen + 40)
+    );
+
+    let before = cleanContextSnippet(beforeRaw);
+    before = maskEmailLocalParts(before);
+    before = maskOtherDigits(before);
+
+    let after = cleanContextSnippet(afterRaw);
+    after = maskEmailLocalParts(after);
+    after = maskOtherDigits(after);
+
+    let result = `${before}${kwText}${after}`.trim();
+    if (result.length > 100) {
+      result = result.slice(0, 100);
+    }
+    return result;
+  }
+
+  // If no keyword either, take up to 80 chars of body
+  let snippet = cleanContextSnippet(targetText.slice(0, 80));
+  snippet = maskEmailLocalParts(snippet);
+  snippet = maskOtherDigits(snippet);
+  if (snippet.length > 100) {
+    snippet = snippet.slice(0, 100);
+  }
+  return snippet || "(no content)";
 }
 
 /**
@@ -216,6 +496,24 @@ export async function auditAccount(options: AuditAccountOptions): Promise<Accoun
         }
       }
 
+      // Collect known email local parts from headers so they never leak in explain context
+      const extraLocalParts: string[] = [];
+      const emailMatch = from.match(/<([^>]+)>|([^\s<]+@[^\s>]+)/);
+      if (emailMatch) {
+        const fullAddr = emailMatch[1] || emailMatch[2];
+        const at = fullAddr.indexOf("@");
+        if (at !== -1) {
+          extraLocalParts.push(fullAddr.slice(0, at));
+        }
+      }
+      for (const h of headers) {
+        if (h.name.toLowerCase() === "authentication-results") {
+          for (const m of h.value.matchAll(/(?:header\.i|smtp\.mailfrom)=["<]?([^@"<>;\s]+)@/gi)) {
+            if (m[1]) extraLocalParts.push(m[1]);
+          }
+        }
+      }
+
       results[idx] = {
         id: msgId,
         sender,
@@ -227,7 +525,18 @@ export async function auditAccount(options: AuditAccountOptions): Promise<Accoun
         detectedRaw: otp?.raw,
         confidence: otp?.confidence,
         isPossibleMiss,
-        isPossibleFalsePositive
+        isPossibleFalsePositive,
+        candidateShape: getCandidateShape(otp?.raw),
+        nearestKeyword: findNearestKeyword(body, subject, otp?.raw).keyword,
+        nearestKeywordDistance: findNearestKeyword(body, subject, otp?.raw).distance,
+        authInfo: parseAuthResults(headers),
+        contextWindow: maskContextWindow(
+          body,
+          subject,
+          otp?.raw,
+          getCandidateShape(otp?.raw),
+          extraLocalParts
+        )
       };
     }
   });

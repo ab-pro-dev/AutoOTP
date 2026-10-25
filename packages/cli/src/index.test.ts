@@ -2207,6 +2207,292 @@ describe("CLI utilities and commands", () => {
       expect(outWith).not.toContain(sentinelToken);
       expect(outWith).not.toContain(sentinelMsgId);
     });
+
+    it("--explain output never contains the sentinel code or any email local part", async () => {
+      const store = new TokenStore(tempDir);
+      const sentinelToken = "SENTINEL_TOKEN_SECRET_987654";
+      await store.set("personal", {
+        refreshToken: sentinelToken,
+        email: "personal@example.com",
+        addedAt: Date.now()
+      });
+
+      const sentinelCode = "987654";
+      const sentinelLocalPart = "secret_user_local_part";
+      const sentinelDomain = "unverified-sender.com";
+
+      const mockFetch: typeof fetch = async (input) => {
+        const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          return new Response(JSON.stringify({ access_token: "mock-access-token", expires_in: 3600 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("gmail/v1/users/me/messages?")) {
+          return new Response(JSON.stringify({ messages: [{ id: "msg-unverified" }] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("msg-unverified")) {
+          const msgData = makeMockMessage({
+            id: "msg-unverified",
+            from: `Secret Admin <${sentinelLocalPart}@${sentinelDomain}>`,
+            subject: "Your verification code",
+            body: `Hello ${sentinelLocalPart}, your code is ${sentinelCode}. Please keep it secret.`,
+            authResults: `mx.google.com; dkim=pass header.i=${sentinelLocalPart}@${sentinelDomain}; spf=pass smtp.mailfrom="${sentinelLocalPart}@${sentinelDomain}"; dmarc=fail header.from=${sentinelDomain}`
+          });
+          return new Response(JSON.stringify(msgData), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        return new Response("Not Found", { status: 404 });
+      };
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await auditAction(
+          { days: 14, explain: true },
+          {
+            homeDir: tempDir,
+            fetchImpl: mockFetch,
+            initialBackoffMs: 1,
+            sleepFn: async () => {}
+          }
+        );
+      } finally {
+        console.log = origLog;
+      }
+
+      const out = lines.join("\n");
+      expect(out).toContain("Explain:");
+      expect(out).toContain("Unverified senders:");
+      expect(out).toContain(`domain: ${sentinelDomain}`);
+      expect(out).toContain("<CODE:6 digits>");
+      expect(out).toContain("authserv-id=mx.google.com");
+      expect(out).toContain(`smtp.mailfrom=${sentinelDomain}`);
+      expect(out).toContain("dmarc=fail");
+
+      // Verify NEVER leaks sentinel code or email local part:
+      expect(out).not.toContain(sentinelCode);
+      expect(out).not.toContain(sentinelLocalPart);
+      expect(out).not.toContain(sentinelToken);
+    });
+
+    it("--explain respects the context length cap (never more than 100 characters)", async () => {
+      const store = new TokenStore(tempDir);
+      await store.set("personal", {
+        refreshToken: "mock-token",
+        email: "personal@example.com",
+        addedAt: Date.now()
+      });
+
+      const longBefore = "A".repeat(150);
+      const longAfter = "B".repeat(150);
+
+      const mockFetch: typeof fetch = async (input) => {
+        const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          return new Response(JSON.stringify({ access_token: "mock-token", expires_in: 3600 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("gmail/v1/users/me/messages?")) {
+          return new Response(JSON.stringify({ messages: [{ id: "msg-long" }] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("msg-long")) {
+          const msgData = makeMockMessage({
+            id: "msg-long",
+            from: "Service <service@test.com>",
+            subject: "Your code",
+            body: `${longBefore} 849201 ${longAfter}`
+          });
+          return new Response(JSON.stringify(msgData), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        return new Response("Not Found", { status: 404 });
+      };
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await auditAction(
+          { days: 14, explain: true },
+          {
+            homeDir: tempDir,
+            fetchImpl: mockFetch,
+            initialBackoffMs: 1,
+            sleepFn: async () => {}
+          }
+        );
+      } finally {
+        console.log = origLog;
+      }
+
+      const contextLine = lines.find((l) => l.trim().startsWith("context:"));
+      expect(contextLine).toBeDefined();
+      const contextText = contextLine!.replace(/^.*context:\s*/, "");
+      expect(contextText.length).toBeLessThanOrEqual(100);
+      expect(contextText).toContain("<CODE:6 digits>");
+    });
+
+    it("--explain masks other digit runs of 4 or more digits with <N>", async () => {
+      const store = new TokenStore(tempDir);
+      await store.set("personal", {
+        refreshToken: "mock-token",
+        email: "personal@example.com",
+        addedAt: Date.now()
+      });
+
+      const mockFetch: typeof fetch = async (input) => {
+        const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          return new Response(JSON.stringify({ access_token: "mock-token", expires_in: 3600 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("gmail/v1/users/me/messages?")) {
+          return new Response(JSON.stringify({ messages: [{ id: "msg-digits" }] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("msg-digits")) {
+          const msgData = makeMockMessage({
+            id: "msg-digits",
+            from: "Service <service@digits.com>",
+            subject: "Your code",
+            body: "Your verification code is 123456. Order #998877 and pin 5432, ref 123."
+          });
+          return new Response(JSON.stringify(msgData), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        return new Response("Not Found", { status: 404 });
+      };
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await auditAction(
+          { days: 14, explain: true },
+          {
+            homeDir: tempDir,
+            fetchImpl: mockFetch,
+            initialBackoffMs: 1,
+            sleepFn: async () => {}
+          }
+        );
+      } finally {
+        console.log = origLog;
+      }
+
+      const out = lines.join("\n");
+      const contextLine = lines.find((l) => l.trim().startsWith("context:"));
+      expect(contextLine).toBeDefined();
+      expect(contextLine).toContain("<CODE:6 digits>");
+      expect(contextLine).toContain("<N>");
+      expect(contextLine).toContain("123"); // 3 digits not replaced
+      expect(contextLine).not.toContain("998877");
+      expect(contextLine).not.toContain("5432");
+      expect(out).not.toMatch(/\b\d{6,}\b/);
+    });
+
+    it("leaves default output unchanged without --explain", async () => {
+      const store = new TokenStore(tempDir);
+      await store.set("personal", {
+        refreshToken: "mock-token",
+        email: "personal@example.com",
+        addedAt: Date.now()
+      });
+
+      const mockFetch: typeof fetch = async (input) => {
+        const urlStr = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+        if (urlStr.includes("oauth2.googleapis.com/token")) {
+          return new Response(JSON.stringify({ access_token: "mock-token", expires_in: 3600 }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("gmail/v1/users/me/messages?")) {
+          return new Response(JSON.stringify({ messages: [{ id: "msg-default" }] }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        if (urlStr.includes("msg-default")) {
+          const msgData = makeMockMessage({
+            id: "msg-default",
+            from: "Service <service@test.com>",
+            subject: "Your verification code",
+            body: "Your code is 654321."
+          });
+          return new Response(JSON.stringify(msgData), {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          });
+        }
+
+        return new Response("Not Found", { status: 404 });
+      };
+
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await auditAction(
+          { days: 14, explain: false },
+          {
+            homeDir: tempDir,
+            fetchImpl: mockFetch,
+            initialBackoffMs: 1,
+            sleepFn: async () => {}
+          }
+        );
+      } finally {
+        console.log = origLog;
+      }
+
+      const out = lines.join("\n");
+      expect(out).toContain("Summary:");
+      expect(out).toContain("Detected senders:");
+      expect(out).not.toContain("Explain:");
+      expect(out).not.toContain("context:");
+      expect(out).not.toContain("auth:");
+    });
   });
 });
 

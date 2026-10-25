@@ -5,4 +5,10 @@ export * from "./login.js";
 export * from "./verification.js";
 export * from "./watcher.js";
 export * from "./audit.js";
-export { KEYWORD_TABLE, containsKeyword, type KeywordTableEntry } from "@autootp/otp-parser";
+export {
+  KEYWORD_TABLE,
+  containsKeyword,
+  scanKeywords,
+  getCandidateShape,
+  type KeywordTableEntry
+} from "@autootp/otp-parser";

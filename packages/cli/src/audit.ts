@@ -11,6 +11,7 @@ export interface AuditCommandOptions {
   days?: string | number;
   account?: string;
   subjects?: boolean;
+  explain?: boolean;
 }
 
 export interface AuditContext extends CommandContext {
@@ -182,4 +183,68 @@ export async function auditAction(
   printGroup("Unverified senders", unverifiedGroups);
   printGroup("Possible misses", missGroups);
   printGroup("Possible false positives", falsePositiveGroups);
+
+  if (options.explain) {
+    console.log("\nExplain:");
+
+    const unverifiedMsgs = allMessages.filter((m) => m.isDetected && !m.senderVerified);
+    const falsePositiveMsgs = allMessages.filter((m) => m.isPossibleFalsePositive);
+    const missMsgs = allMessages.filter((m) => m.isPossibleMiss);
+
+    const printExplainGroup = (
+      title: string,
+      messages: AuditMessageItem[],
+      forceAuth: boolean = false
+    ) => {
+      console.log(`  ${title}:`);
+      if (messages.length === 0) {
+        console.log("    (none)");
+        return;
+      }
+      const sample = messages.slice(0, 5);
+      for (const msg of sample) {
+        const domain = msg.senderDomain ?? "unknown";
+        const conf = msg.confidence ?? "none";
+        const shape = msg.candidateShape ?? "none";
+        console.log(`    - domain: ${domain}`);
+        console.log(`      confidence: ${conf}`);
+        console.log(`      shape: ${shape}`);
+
+        if (
+          msg.nearestKeyword &&
+          msg.nearestKeywordDistance !== null &&
+          msg.nearestKeywordDistance !== undefined
+        ) {
+          console.log(
+            `      nearest keyword: "${msg.nearestKeyword}" (${msg.nearestKeywordDistance} chars)`
+          );
+        } else {
+          console.log("      nearest keyword: none within 80");
+        }
+
+        if (forceAuth || !msg.senderVerified) {
+          if (msg.authInfo) {
+            const { authservId, verdicts, headerFrom, headerD, smtpMailfrom } = msg.authInfo;
+            const authParts: string[] = [];
+            if (authservId) authParts.push(`authserv-id=${authservId}`);
+            if (verdicts.length > 0) authParts.push(verdicts.join(" "));
+            if (headerFrom) authParts.push(`header.from=${headerFrom}`);
+            if (headerD) authParts.push(`header.d=${headerD}`);
+            if (smtpMailfrom) authParts.push(`smtp.mailfrom=${smtpMailfrom}`);
+
+            const authLine = authParts.length > 0 ? authParts.join(" ") : "none";
+            console.log(`      auth: ${authLine}`);
+          } else {
+            console.log("      auth: none");
+          }
+        }
+
+        console.log(`      context: ${msg.contextWindow ?? "(no content)"}`);
+      }
+    };
+
+    printExplainGroup("Unverified senders", unverifiedMsgs, true);
+    printExplainGroup("Possible false positives", falsePositiveMsgs, false);
+    printExplainGroup("Possible misses", missMsgs, false);
+  }
 }

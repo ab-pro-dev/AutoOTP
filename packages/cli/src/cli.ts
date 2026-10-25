@@ -133,7 +133,8 @@ export function createProgram(context: CommandContext = {}): Command {
     .option("--days <days>", "Number of days to audit (1 to 60)", "14")
     .option("--account <alias>", "Account alias to audit (default: all accounts)")
     .option("--subjects", "Include sanitized email subjects in domain groups", false)
-    .action(async (opts: { days?: string; account?: string; subjects?: boolean }) => {
+    .option("--explain", "Print explanation details for unverified senders, false positives, and misses", false)
+    .action(async (opts: { days?: string; account?: string; subjects?: boolean; explain?: boolean }) => {
       await auditAction(opts, context);
     });
 

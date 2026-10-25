@@ -161,6 +161,41 @@ export function containsKeyword(text?: string): boolean {
 }
 
 /**
+ * Scans text for all occurrences of phrases in KEYWORD_TABLE.
+ */
+export function scanKeywords(text: string): Array<{ phrase: string; index: number }> {
+  if (!text) return [];
+  KEYWORD_SCAN_REGEX.lastIndex = 0;
+  const results: Array<{ phrase: string; index: number }> = [];
+  for (const m of text.matchAll(KEYWORD_SCAN_REGEX)) {
+    if (m.index !== undefined) {
+      results.push({ phrase: m[0], index: m.index });
+    }
+  }
+  return results;
+}
+
+/**
+ * Returns a human-readable shape description of an OTP candidate.
+ * e.g. "6 digits", "8 alphanumeric", "dashed", "none"
+ */
+export function getCandidateShape(raw?: string): string {
+  if (!raw) return "none";
+  if (raw.includes("-") || raw.includes(" ")) return "dashed";
+  if (/^\d+$/.test(raw)) return `${raw.length} digits`;
+  if (/^[A-Za-z0-9]+$/.test(raw)) {
+    if (/[A-Za-z]/.test(raw) && /\d/.test(raw)) {
+      return `${raw.length} alphanumeric`;
+    }
+    if (/^[A-Za-z]+$/.test(raw)) {
+      return `${raw.length} alpha`;
+    }
+    return `${raw.length} alphanumeric`;
+  }
+  return `${raw.length} characters`;
+}
+
+/**
  * Checks if the subject line contains an OTP-related keyword.
  */
 export function hasSubjectKeyword(subject?: string): boolean {
