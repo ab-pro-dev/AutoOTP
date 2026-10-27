@@ -16,6 +16,7 @@ import {
   clearAction,
   doctorAction,
   auditAction,
+  extensionPathAction,
   CommandContext
 } from "./commands.js";
 
@@ -136,6 +137,13 @@ export function createProgram(context: CommandContext = {}): Command {
     .option("--explain", "Print explanation details for unverified senders, false positives, and misses", false)
     .action(async (opts: { days?: string; account?: string; subjects?: boolean; explain?: boolean }) => {
       await auditAction(opts, context);
+    });
+
+  program
+    .command("extension-path")
+    .description("Print the absolute path to the browser extension directory")
+    .action(async () => {
+      await extensionPathAction(context);
     });
 
   return program;

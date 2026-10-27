@@ -28,6 +28,7 @@ export interface CommandContext {
   signal?: AbortSignal;
   pollMs?: number;
   exitImpl?: (code: number) => void;
+  metaUrl?: string | URL;
 }
 
 export async function loginAction(
@@ -289,6 +290,7 @@ export async function clearAction(context: CommandContext = {}): Promise<void> {
 export * from "./autostart.js";
 export * from "./doctor.js";
 export * from "./audit.js";
+export * from "./extension-path.js";
 
 
 

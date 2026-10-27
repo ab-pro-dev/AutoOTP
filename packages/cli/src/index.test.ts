@@ -26,7 +26,9 @@ import {
   historyAction,
   clearAction,
   doctorAction,
-  auditAction
+  auditAction,
+  resolveExtensionPath,
+  extensionPathAction
 } from "./commands.js";
 import {
   generateSystemdUnit,
@@ -2687,6 +2689,127 @@ describe("CLI utilities and commands", () => {
       expect(contextLine).toContain("<TOKEN>");
       expect(contextLine).not.toContain("sec_token_abcdef123456");
       expect(out).not.toMatch(/[A-Za-z0-9_-]{20,}/);
+    });
+  });
+
+  describe("extension-path and publish package", () => {
+    it("resolves extension path in source tree layout", () => {
+      const extPath = resolveExtensionPath(import.meta.url);
+      expect(extPath).toContain(path.join("packages", "browser-extension", "dist-ext"));
+      expect(fs.existsSync(extPath)).toBe(true);
+      expect(fs.existsSync(path.join(extPath, "manifest.json"))).toBe(true);
+    });
+
+    it("resolves extension path in bundled layout", () => {
+      const bundleDir = path.join(tempDir, "bundle-test");
+      const extDir = path.join(bundleDir, "extension");
+      fs.mkdirSync(extDir, { recursive: true });
+      fs.writeFileSync(path.join(extDir, "manifest.json"), "{}");
+      const scriptPath = path.join(bundleDir, "autootp.mjs");
+      fs.writeFileSync(scriptPath, "#!/usr/bin/env node\n");
+
+      const resolved = resolveExtensionPath(`file://${scriptPath}`);
+      expect(resolved).toBe(path.resolve(extDir));
+    });
+
+    it("throws when extension directory is missing", () => {
+      const emptyDir = path.join(tempDir, "isolated-empty");
+      fs.mkdirSync(emptyDir, { recursive: true });
+      const scriptPath = path.join(emptyDir, "isolated.mjs");
+      fs.writeFileSync(scriptPath, "#!/usr/bin/env node\n");
+
+      expect(() => resolveExtensionPath(`file://${scriptPath}`)).toThrow(
+        /Extension directory not found/
+      );
+    });
+
+    it("throws when manifest.json is missing in extension directory", () => {
+      const bundleDir = path.join(tempDir, "missing-manifest");
+      const extDir = path.join(bundleDir, "extension");
+      fs.mkdirSync(extDir, { recursive: true });
+      const scriptPath = path.join(bundleDir, "autootp.mjs");
+      fs.writeFileSync(scriptPath, "#!/usr/bin/env node\n");
+
+      expect(() => resolveExtensionPath(`file://${scriptPath}`)).toThrow(
+        /Extension manifest\.json is missing/
+      );
+    });
+
+    it("extensionPathAction prints path to stdout on success", async () => {
+      const logs: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => logs.push(msg);
+
+      try {
+        await extensionPathAction({ metaUrl: import.meta.url });
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(logs.length).toBe(1);
+      expect(logs[0]).toContain(path.join("packages", "browser-extension", "dist-ext"));
+    });
+
+    it("extensionPathAction logs error and exits 1 when extension is missing", async () => {
+      const emptyDir = path.join(tempDir, "nonexistent-ext");
+      fs.mkdirSync(emptyDir, { recursive: true });
+      const fakeUrl = `file://${path.join(emptyDir, "runner.mjs")}`;
+
+      const errors: string[] = [];
+      const origErr = console.error;
+      console.error = (msg: string) => errors.push(msg);
+
+      let exitCode: number | undefined;
+      try {
+        await extensionPathAction({
+          metaUrl: fakeUrl,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        });
+      } finally {
+        console.error = origErr;
+      }
+
+      expect(exitCode).toBe(1);
+      expect(errors.length).toBe(1);
+      expect(errors[0]).toMatch(/Extension directory not found/);
+    });
+
+    it("publish/package.json has NO dependencies, NO scripts, and valid fields", async () => {
+      const { generatePublishPackageJson } = await import(
+        "../../../scripts/build-publish.mjs"
+      );
+      const rootPkgPath = path.resolve(__dirname, "../../../package.json");
+      const rootPkg = JSON.parse(fs.readFileSync(rootPkgPath, "utf8"));
+      const publishPkg = generatePublishPackageJson(rootPkg);
+
+      expect(publishPkg.name).toBe("autootp");
+      expect(publishPkg.version).toBe(rootPkg.version);
+      expect(publishPkg.bin).toEqual({ autootp: "autootp.mjs" });
+      expect(publishPkg.type).toBe("module");
+      expect(publishPkg.engines?.node).toBe(">=22.13");
+      expect(publishPkg.files).toContain("autootp.mjs");
+      expect(publishPkg.files).toContain("extension");
+      expect(publishPkg.files).toContain("README.md");
+
+      // Strictly ensure NO dependencies and NO scripts
+      expect(publishPkg).not.toHaveProperty("dependencies");
+      expect(publishPkg).not.toHaveProperty("scripts");
+
+      // If publish/package.json exists on disk, check the actual file directly
+      const publishPkgFile = path.resolve(__dirname, "../../../publish/package.json");
+      if (fs.existsSync(publishPkgFile)) {
+        const rawJson = fs.readFileSync(publishPkgFile, "utf8");
+        expect(rawJson.includes('"dependencies"')).toBe(false);
+        expect(rawJson.includes('"scripts"')).toBe(false);
+
+        const onDiskPkg = JSON.parse(rawJson);
+        expect(onDiskPkg.dependencies).toBeUndefined();
+        expect(onDiskPkg.scripts).toBeUndefined();
+        expect(onDiskPkg.name).toBe("autootp");
+        expect(onDiskPkg.bin).toEqual({ autootp: "autootp.mjs" });
+      }
     });
   });
 });

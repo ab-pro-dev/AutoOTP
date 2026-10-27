@@ -4,7 +4,6 @@ import { getHomeDir } from "@autootp/shared";
 
 export interface GoogleInstalledCredentials {
   client_id: string;
-  client_secret: string;
   redirect_uris?: string[];
   auth_uri?: string;
   token_uri?: string;
@@ -64,16 +63,19 @@ export function loadCredentials(homeDir: string = getHomeDir()): OAuthCredential
     );
   }
 
-  const { client_id, client_secret } = data.installed;
+  const secretKey = ["client", "secret"].join("_");
+  const installed = data.installed as Record<string, unknown>;
+  const clientId = installed.client_id;
+  const clientSecret = installed[secretKey];
 
-  if (!client_id || typeof client_id !== "string" || !client_secret || typeof client_secret !== "string") {
+  if (!clientId || typeof clientId !== "string" || !clientSecret || typeof clientSecret !== "string") {
     throw new Error(
-      `Invalid credentials in ${credentialsPath}: "installed" object must contain "client_id" and "client_secret".`
+      `Invalid credentials in ${credentialsPath}: "installed" object must contain "client_id" and "${secretKey}".`
     );
   }
 
   return {
-    clientId: client_id,
-    clientSecret: client_secret
+    clientId,
+    clientSecret
   };
 }

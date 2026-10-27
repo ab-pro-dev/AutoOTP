@@ -1,5 +1,6 @@
 {
   "name": "autootp-monorepo",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -11,6 +12,7 @@
   "scripts": {
     "build": "tsc -b",
     "build:ext": "npm run build:ext -w @autootp/browser-extension",
+    "build:publish": "node scripts/build-publish.mjs",
     "test": "vitest run",
     "typecheck": "tsc -b"
   },

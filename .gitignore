@@ -12,3 +12,5 @@ logs/
 coverage/
 graphify-out/
 dist-ext/
+publish/
+
