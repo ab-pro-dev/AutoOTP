@@ -103,11 +103,10 @@ export async function loginWithBrowser(options: LoginOptions): Promise<LoginResu
       // Exchange authorization code for tokens and fetch user email
       (async () => {
         try {
-          const secretKey = ["client", "secret"].join("_");
           const redirectUri = `http://127.0.0.1:${port}/callback`;
           const tokenParams = new URLSearchParams({
             client_id: credentials.clientId,
-            [secretKey]: credentials.clientSecret,
+            client_secret: credentials.clientSecret,
             code,
             code_verifier: verifier,
             redirect_uri: redirectUri,
@@ -249,10 +248,9 @@ export async function refreshAccessToken(
     throw new ReauthRequiredError(`No refresh token found for account "${accountId}". Please log in.`);
   }
 
-  const secretKey = ["client", "secret"].join("_");
   const tokenParams = new URLSearchParams({
     client_id: credentials.clientId,
-    [secretKey]: credentials.clientSecret,
+    client_secret: credentials.clientSecret,
     refresh_token: stored.refreshToken,
     grant_type: "refresh_token"
   });

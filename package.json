@@ -13,6 +13,7 @@
     "build": "tsc -b",
     "build:ext": "npm run build:ext -w @autootp/browser-extension",
     "build:publish": "node scripts/build-publish.mjs",
+    "scan:publish": "node scripts/scan-publish.mjs",
     "test": "vitest run",
     "typecheck": "tsc -b"
   },

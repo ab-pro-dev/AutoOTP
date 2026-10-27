@@ -2812,6 +2812,133 @@ describe("CLI utilities and commands", () => {
       }
     });
   });
+
+  describe("secret scanner (scan-publish)", () => {
+    it("passes for a clean directory without secrets", async () => {
+      const { scanDirectory, runScan } = await import(
+        "../../../scripts/scan-publish.mjs"
+      );
+      const cleanDir = path.join(tempDir, "clean-scan-dir");
+      fs.mkdirSync(cleanDir, { recursive: true });
+      fs.writeFileSync(path.join(cleanDir, "package.json"), '{"name":"clean"}');
+      fs.writeFileSync(
+        path.join(cleanDir, "index.js"),
+        'console.log("client_secret parameter is ok");'
+      );
+      fs.writeFileSync(path.join(cleanDir, "README.md"), "# Clean project");
+
+      const result = scanDirectory(cleanDir);
+      expect(result.ok).toBe(true);
+      expect(result.violations).toHaveLength(0);
+
+      const runOk = await runScan(cleanDir);
+      expect(runOk).toBe(true);
+    });
+
+    it("catches forbidden value patterns with fake sentinel secrets", async () => {
+      const { scanDirectory } = await import(
+        "../../../scripts/scan-publish.mjs"
+      );
+
+      const sentinelCases = [
+        { name: "gocspx", content: "GOCSPX-1234567890abcdefghij", pattern: "GOCSPX" },
+        { name: "ya29", content: "ya29.a0AfH6SMDfake-token-value-1234567890", pattern: "ya29" },
+        { name: "oauth_refresh", content: "1//04abcdefghij1234567890", pattern: "1//" },
+        { name: "ghp", content: "ghp_abcdefghijklmnopqrst", pattern: "ghp_" },
+        { name: "aiza", content: "AIzaSyD-fake-key-1234567890abcdefghij", pattern: "AIza" },
+        { name: "rsa_key", content: "-----BEGIN RSA PRIVATE KEY-----\nMIIEow...", pattern: "PRIVATE KEY" },
+        { name: "ec_key", content: "-----BEGIN EC PRIVATE KEY-----\nMHQCAQ...", pattern: "PRIVATE KEY" },
+        { name: "pkcs8_key", content: "-----BEGIN PRIVATE KEY-----\nMIIEvg...", pattern: "PRIVATE KEY" },
+        { name: "google_client_domain", content: "client.apps.googleusercontent.com", pattern: "apps.googleusercontent.com" },
+        { name: "project_number", content: "project_332568239211_id", pattern: "332568239211" }
+      ];
+
+      for (const tc of sentinelCases) {
+        const testDir = path.join(tempDir, `sentinel-${tc.name}`);
+        fs.mkdirSync(testDir, { recursive: true });
+        fs.writeFileSync(path.join(testDir, "file.txt"), `some prefix ${tc.content} some suffix`);
+
+        const res = scanDirectory(testDir);
+        expect(res.ok).toBe(false);
+        expect(res.violations.length).toBeGreaterThan(0);
+        expect(res.violations[0].reason).toContain("Matched secret value pattern");
+      }
+    });
+
+    it("catches forbidden file names and extensions", async () => {
+      const { scanDirectory, isForbiddenFilename } = await import(
+        "../../../scripts/scan-publish.mjs"
+      );
+
+      const forbiddenNames = [
+        "cert.pem",
+        "tokens.enc",
+        "history.db",
+        ".env",
+        ".env.local",
+        ".env.production",
+        "credentials.json",
+        "credentials_backup.json"
+      ];
+
+      for (const name of forbiddenNames) {
+        expect(isForbiddenFilename(name)).toBe(true);
+
+        const testDir = path.join(tempDir, `file-${name.replace(/[^a-zA-Z0-9]/g, "_")}`);
+        fs.mkdirSync(testDir, { recursive: true });
+        fs.writeFileSync(path.join(testDir, name), "harmless content");
+
+        const res = scanDirectory(testDir);
+        expect(res.ok).toBe(false);
+        expect(
+          res.violations.some((v: { reason: string }) =>
+            v.reason.includes("Forbidden file name")
+          )
+        ).toBe(true);
+      }
+    });
+
+    it("catches forbidden files in nested subdirectories", async () => {
+      const { scanDirectory } = await import(
+        "../../../scripts/scan-publish.mjs"
+      );
+
+      const nestedDir = path.join(tempDir, "nested-test", "sub", "deep");
+      fs.mkdirSync(nestedDir, { recursive: true });
+      fs.writeFileSync(path.join(nestedDir, "key.pem"), "dummy");
+
+      const rootTestDir = path.join(tempDir, "nested-test");
+      const res = scanDirectory(rootTestDir);
+      expect(res.ok).toBe(false);
+      expect(res.violations.some((v: { file: string }) => v.file.includes("key.pem"))).toBe(
+        true
+      );
+    });
+
+    it("runScan logs errors and returns false when violations exist", async () => {
+      const { runScan } = await import(
+        "../../../scripts/scan-publish.mjs"
+      );
+
+      const badDir = path.join(tempDir, "runscan-fail");
+      fs.mkdirSync(badDir, { recursive: true });
+      fs.writeFileSync(path.join(badDir, "token.txt"), "ghp_12345678901234567890");
+
+      const errLogs: string[] = [];
+      const origErr = console.error;
+      console.error = (msg: string) => errLogs.push(msg);
+
+      try {
+        const ok = await runScan(badDir);
+        expect(ok).toBe(false);
+      } finally {
+        console.error = origErr;
+      }
+
+      expect(errLogs.length).toBeGreaterThan(0);
+      expect(errLogs.some((l) => l.includes("Secret scan FAILED"))).toBe(true);
+    });
+  });
 });
 
 

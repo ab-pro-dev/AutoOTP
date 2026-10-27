@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import esbuild from "esbuild";
+import { runScan } from "./scan-publish.mjs";
 
 export function generatePublishPackageJson(rootPkg) {
   return {
@@ -56,9 +57,15 @@ export async function buildPublish(options = {}) {
     "utf8"
   );
 
-  // 2. Copy extension/
+  // 2. Copy extension files (manifest.json, popup.html, *.js only; no .d.ts)
   const publishExtDir = path.join(publishDir, "extension");
-  fs.cpSync(extDistDir, publishExtDir, { recursive: true });
+  fs.mkdirSync(publishExtDir, { recursive: true });
+  const extFiles = fs.readdirSync(extDistDir);
+  for (const file of extFiles) {
+    if (file === "manifest.json" || file === "popup.html" || (file.endsWith(".js") && !file.endsWith(".d.ts"))) {
+      fs.copyFileSync(path.join(extDistDir, file), path.join(publishExtDir, file));
+    }
+  }
 
   // 3. Copy README.md
   fs.copyFileSync(path.join(rootDir, "README.md"), path.join(publishDir, "README.md"));
@@ -105,6 +112,12 @@ export async function buildPublish(options = {}) {
 
   // Make binary executable
   fs.chmodSync(outfilePath, 0o755);
+
+  // 5. Run secret scanner on publish directory
+  const scanOk = await runScan(publishDir);
+  if (!scanOk) {
+    throw new Error("Secret scan failed on publish directory");
+  }
 
   console.log(`Successfully built publishable package in ${path.relative(rootDir, publishDir)}/`);
 }
