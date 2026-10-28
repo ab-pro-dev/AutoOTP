@@ -3587,6 +3587,152 @@ describe("CLI utilities and commands", () => {
       expect(raw).toContain("Paste this into the AutoOTP popup. Never share it.");
     });
   });
+
+  describe("Project documentation and metadata", () => {
+    const rootDir = path.resolve(__dirname, "../../..");
+    const readmePath = path.join(rootDir, "README.md");
+    const licensePath = path.join(rootDir, "LICENSE");
+    const securityPath = path.join(rootDir, "SECURITY.md");
+    const privacyPath = path.join(rootDir, "PRIVACY.md");
+
+    it("README contains each required section heading in the exact required order", () => {
+      const content = fs.readFileSync(readmePath, "utf8");
+      const lines = content.split("\n");
+      const h2s = lines
+        .filter((l) => l.startsWith("## "))
+        .map((l) => l.slice(3).trim());
+
+      const expectedSections = [
+        "What it does",
+        "How it works",
+        "Requirements",
+        "Install",
+        "Quick start",
+        "Commands",
+        "Settings",
+        "Security model",
+        "Privacy",
+        "Troubleshooting",
+        "Limitations",
+        "Not yet supported",
+        "License"
+      ];
+
+      expect(h2s).toEqual(expectedSections);
+    });
+
+    it("every command named in the README exists in autootp --help", () => {
+      const program = createProgram();
+      const cliCommands = new Set(program.commands.map((c) => c.name()));
+
+      const content = fs.readFileSync(readmePath, "utf8");
+
+      // Check commands from the Commands table (first column within backticks: `cmd` or `cmd subcmd`)
+      const tableMatch = content.match(/## Commands\s+([\s\S]*?)(?=\n## )/);
+      expect(tableMatch).not.toBeNull();
+      const tableContent = tableMatch![1];
+      const tableCmds = Array.from(tableContent.matchAll(/\|\s*`([a-z-]+)(?:\s+[a-z-]+)?`\s*\|/g)).map(
+        (m) => m[1]
+      );
+      expect(tableCmds.length).toBeGreaterThan(0);
+      for (const cmd of tableCmds) {
+        expect(cliCommands.has(cmd), `Command in table "${cmd}" not found in CLI`).toBe(true);
+      }
+
+      // Check all `autootp <cmd>` references throughout the README (excluding paths like ~/.autootp)
+      const codeMatches = Array.from(content.matchAll(/(?<![./~a-zA-Z0-9_-])autootp\s+([a-z-]+)/g)).map(
+        (m) => m[1]
+      );
+      for (const cmd of codeMatches) {
+        expect(cliCommands.has(cmd), `autootp reference "${cmd}" not found in CLI`).toBe(true);
+      }
+    });
+
+    it("every relative link in the Markdown files resolves", () => {
+      const mdFiles = [readmePath, securityPath, privacyPath];
+      for (const mdFile of mdFiles) {
+        expect(fs.existsSync(mdFile), `${mdFile} must exist`).toBe(true);
+        const content = fs.readFileSync(mdFile, "utf8");
+        const dir = path.dirname(mdFile);
+
+        // Match markdown links: [text](target)
+        const linkMatches = Array.from(content.matchAll(/\[([^\]]+)\]\(([^)]+)\)/g));
+        for (const match of linkMatches) {
+          const target = match[2].trim();
+          // Skip external URLs and anchors
+          if (
+            target.startsWith("http://") ||
+            target.startsWith("https://") ||
+            target.startsWith("#") ||
+            target.startsWith("mailto:")
+          ) {
+            continue;
+          }
+          const cleanTarget = target.split("#")[0];
+          if (!cleanTarget) continue;
+
+          const resolved = path.resolve(dir, cleanTarget);
+          expect(
+            fs.existsSync(resolved),
+            `Link target "${target}" in ${path.basename(mdFile)} does not resolve to ${resolved}`
+          ).toBe(true);
+        }
+      }
+    });
+
+    it("the README does not contain the words Firefox, Outlook or Chrome Web Store outside the 'Not yet supported' section", () => {
+      const content = fs.readFileSync(readmePath, "utf8");
+      const parts = content.split("## Not yet supported");
+      expect(parts.length).toBe(2);
+
+      const before = parts[0];
+      const after = parts[1].split("\n## ")[1] || "";
+      const outside = before + "\n" + after;
+
+      const forbiddenWords = ["Firefox", "Outlook", "Chrome Web Store"];
+      for (const word of forbiddenWords) {
+        expect(
+          outside.toLowerCase().includes(word.toLowerCase()),
+          `Word "${word}" found outside "Not yet supported" section in README.md`
+        ).toBe(false);
+      }
+
+      // Confirm that the words DO appear within the Not yet supported section
+      const notYetSupported = parts[1].split("\n## ")[0];
+      for (const word of forbiddenWords) {
+        expect(notYetSupported.toLowerCase()).toContain(word.toLowerCase());
+      }
+    });
+
+    it("LICENSE file has correct MIT header", () => {
+      expect(fs.existsSync(licensePath)).toBe(true);
+      const lines = fs.readFileSync(licensePath, "utf8").split("\n");
+      expect(lines[0]).toBe("MIT License");
+      expect(lines[2]).toBe("Copyright (c) 2026 Abera Hagazi");
+    });
+
+    it("generatePublishPackageJson generates full metadata and includes all required files", async () => {
+      const { generatePublishPackageJson } = await import(
+        "../../../scripts/build-publish.mjs"
+      );
+      const rootPkg = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf8"));
+      const pubPkg = generatePublishPackageJson(rootPkg);
+
+      expect(pubPkg.license).toBe("MIT");
+      expect(pubPkg.author).toBe("Abera Hagazi");
+      expect(pubPkg.repository).toBe("git+https://github.com/ab-pro-dev/AutoOTP.git");
+      expect(pubPkg.bugs).toBe("https://github.com/ab-pro-dev/AutoOTP/issues");
+      expect(pubPkg.homepage).toBe("https://github.com/ab-pro-dev/AutoOTP");
+      expect(pubPkg.description).toBeTruthy();
+      expect(Array.isArray(pubPkg.keywords)).toBe(true);
+      expect(pubPkg.keywords.length).toBeGreaterThan(0);
+
+      expect(pubPkg.files).toContain("LICENSE");
+      expect(pubPkg.files).toContain("README.md");
+      expect(pubPkg.files).toContain("SECURITY.md");
+      expect(pubPkg.files).toContain("PRIVACY.md");
+    });
+  });
 });
 
 

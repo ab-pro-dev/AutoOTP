@@ -9,7 +9,20 @@ export function generatePublishPackageJson(rootPkg) {
   return {
     name: "autootp",
     version: rootPkg.version || "0.1.0",
-    description: "Automated OTP handling for Gmail",
+    description: "Automated OTP detection and autofill for Gmail",
+    keywords: [
+      "autootp",
+      "otp",
+      "2fa",
+      "gmail",
+      "autofill",
+      "chrome-extension"
+    ],
+    homepage: "https://github.com/ab-pro-dev/AutoOTP",
+    bugs: "https://github.com/ab-pro-dev/AutoOTP/issues",
+    repository: "git+https://github.com/ab-pro-dev/AutoOTP.git",
+    license: "MIT",
+    author: "Abera Hagazi",
     type: "module",
     bin: {
       autootp: "autootp.mjs"
@@ -17,7 +30,10 @@ export function generatePublishPackageJson(rootPkg) {
     files: [
       "autootp.mjs",
       "extension",
-      "README.md"
+      "README.md",
+      "LICENSE",
+      "SECURITY.md",
+      "PRIVACY.md"
     ],
     engines: {
       node: ">=22.13"
@@ -67,8 +83,14 @@ export async function buildPublish(options = {}) {
     }
   }
 
-  // 3. Copy README.md
-  fs.copyFileSync(path.join(rootDir, "README.md"), path.join(publishDir, "README.md"));
+  // 3. Copy documentation and license files
+  const docsToCopy = ["README.md", "LICENSE", "SECURITY.md", "PRIVACY.md"];
+  for (const doc of docsToCopy) {
+    const src = path.join(rootDir, doc);
+    if (fs.existsSync(src)) {
+      fs.copyFileSync(src, path.join(publishDir, doc));
+    }
+  }
 
   // 4. Bundle packages/cli with esbuild
   const stripShebangPlugin = {

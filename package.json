@@ -1,6 +1,12 @@
 {
   "name": "autootp-monorepo",
   "version": "0.1.0",
+  "description": "Automated OTP detection and autofill for Gmail",
+  "author": "Abera Hagazi",
+  "license": "MIT",
+  "repository": "git+https://github.com/ab-pro-dev/AutoOTP.git",
+  "bugs": "https://github.com/ab-pro-dev/AutoOTP/issues",
+  "homepage": "https://github.com/ab-pro-dev/AutoOTP",
   "private": true,
   "type": "module",
   "workspaces": [
