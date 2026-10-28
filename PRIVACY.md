@@ -4,7 +4,7 @@ AutoOTP is built with a local-first, privacy-focused design. Your data remains o
 
 ## What Data Is Read
 - **Gmail Messages**: AutoOTP requests access solely using the read-only Gmail OAuth scope (`https://www.googleapis.com/auth/gmail.readonly`).
-- **Local Message Processing**: Incoming messages are fetched and parsed entirely on your local machine to extract verification codes and inspect email authentication headers (SPF/DKIM/DMARC).
+- **Local Message Processing**: Incoming messages are fetched and parsed entirely on your local machine to extract verification codes. To decide auto-fill, only the DMARC result from Gmail's `Authentication-Results` header is evaluated; SPF and DKIM values are present in the header but not independently checked by AutoOTP.
 - **Ephemeral In-Memory Handling**: Full message bodies and email contents are processed in memory and immediately discarded. Raw email contents are never stored on disk or transmitted outside your computer.
 
 ## What Is Stored on Your Machine and for How Long
@@ -13,8 +13,8 @@ AutoOTP stores its application data in `~/.autootp` (or `$AUTOOTP_HOME`):
 - `tokens.enc` & `key`: Google OAuth refresh tokens encrypted with AES-256-GCM. Stored until you remove the account (`autootp remove <alias>`) or delete the data directory.
 - `history.db`: An encrypted local SQLite database storing recently detected OTPs. Records are automatically purged according to your configured `historyRetention` setting (`5m` by default; options: `off`, `5m`, `30m`, `1h`). You can immediately wipe all history using `autootp clear`.
 - `status.json`: A transient status file containing the background service PID, port, active client count, and the sender domain/timestamp of the last detected OTP. It **never** contains OTP codes, tokens, or email bodies. This file is removed when the service shuts down cleanly.
-- `logs/`: Application daemon logs. All detected OTP codes are replaced with `******` before writing to log files.
-- `pair_token`: A per-installation pairing secret used by the browser extension to authenticate with the local WebSocket server.
+- `logs/` (macOS only): Background service output is redirected to `~/.autootp/logs/service.log` when run via macOS launchd (with codes masked). On Linux, service output goes to the systemd user journal (view with `journalctl --user -u autootp.service`), not to a file in `~/.autootp/logs/`. In all non-terminal logs, detected OTP codes are replaced with `******`.
+- `pair.token`: A per-installation pairing secret used by the browser extension to authenticate with the local WebSocket server.
 - `config.json`: Local user configuration and paired extension IDs.
 
 ## What Is Sent Anywhere
