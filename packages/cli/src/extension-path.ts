@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { CommandContext } from "./commands.js";
 
@@ -65,3 +66,49 @@ export async function extensionPathAction(context: CommandContext = {}): Promise
     exit(1);
   }
 }
+
+/**
+ * Computes the Chrome extension ID from the base64-encoded public key in manifest.json.
+ * (SHA-256 of the DER public key, first 32 hex characters mapped 0-9a-f to a-p).
+ */
+export function computeExtensionIdFromKey(key: string): string {
+  const der = Buffer.from(key, "base64");
+  const hash = crypto.createHash("sha256").update(der).digest("hex");
+  return hash
+    .slice(0, 32)
+    .split("")
+    .map((c) => {
+      const val = parseInt(c, 16);
+      return String.fromCharCode("a".charCodeAt(0) + val);
+    })
+    .join("");
+}
+
+/**
+ * Reads manifest.json from the extension directory and computes the extension ID.
+ */
+export function getExtensionId(baseUrl?: string | URL): string {
+  const extDir = resolveExtensionPath(baseUrl);
+  const manifestPath = path.join(extDir, "manifest.json");
+  if (!fs.existsSync(manifestPath)) {
+    throw new Error(`Extension manifest.json is missing in ${extDir}`);
+  }
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  if (!manifest.key || typeof manifest.key !== "string") {
+    throw new Error(`No "key" found in ${manifestPath}`);
+  }
+  return computeExtensionIdFromKey(manifest.key);
+}
+
+export async function extensionIdAction(context: CommandContext = {}): Promise<void> {
+  const exit = context.exitImpl ?? process.exit;
+  try {
+    const id = getExtensionId(context.metaUrl ?? import.meta.url);
+    console.log(id);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(message);
+    exit(1);
+  }
+}
+

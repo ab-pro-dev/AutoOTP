@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import { getEventListeners } from "node:events";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { TokenStore, loadConfig, saveConfig, HistoryStore, writeStatus, VERSION } from "@autootp/shared";
+import { TokenStore, loadConfig, saveConfig, HistoryStore, writeStatus, VERSION, getOrCreatePairToken } from "@autootp/shared";
 import {
   validateAlias,
   validateExtensionId,
@@ -28,7 +29,11 @@ import {
   doctorAction,
   auditAction,
   resolveExtensionPath,
-  extensionPathAction
+  extensionPathAction,
+  getExtensionId,
+  computeExtensionIdFromKey,
+  extensionIdAction,
+  setupAction
 } from "./commands.js";
 import {
   generateSystemdUnit,
@@ -2937,6 +2942,649 @@ describe("CLI utilities and commands", () => {
 
       expect(errLogs.length).toBeGreaterThan(0);
       expect(errLogs.some((l) => l.includes("Secret scan FAILED"))).toBe(true);
+    });
+  });
+
+  describe("extension-id command", () => {
+    it("computes the real extension ID matching biddlaocnaofdjcndgkpkiihfjecniph", () => {
+      const id = getExtensionId();
+      expect(id).toBe("biddlaocnaofdjcndgkpkiihfjecniph");
+    });
+
+    it("prints the extension ID to stdout", async () => {
+      const lines: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => lines.push(msg);
+
+      try {
+        await extensionIdAction();
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(lines).toContain("biddlaocnaofdjcndgkpkiihfjecniph");
+    });
+  });
+
+  describe("setup command", () => {
+    function createInteractiveMock(responses: (string | null)[]) {
+      const input = new PassThrough();
+      const output = new PassThrough();
+      let idx = 0;
+      let rawOutput = "";
+
+      output.on("data", (chunk) => {
+        const str = chunk.toString();
+        rawOutput += str;
+        // Prompt lines end without newline and typically with ": " or "... " or " "
+        if (
+          !str.endsWith("\n") &&
+          (str.endsWith(": ") || str.endsWith("? ") || str.endsWith("... ") || str.endsWith(" "))
+        ) {
+          if (idx < responses.length) {
+            const next = responses[idx++];
+            if (next === null) {
+              input.emit("end");
+            } else {
+              input.write(next + "\n");
+            }
+          }
+        }
+      });
+
+      return {
+        input,
+        output,
+        getRawOutput: () => rawOutput
+      };
+    }
+
+    it("refuses to run without an interactive terminal (non-TTY)", async () => {
+      const errors: string[] = [];
+      const origErr = console.error;
+      console.error = (msg: string) => errors.push(msg);
+
+      let exitCode: number | undefined;
+      try {
+        await setupAction(
+          { dryRun: false },
+          {
+            homeDir: tempDir,
+            isTTY: false,
+            exitImpl: (code) => {
+              exitCode = code;
+            }
+          }
+        );
+      } finally {
+        console.error = origErr;
+      }
+
+      expect(exitCode).toBe(1);
+      expect(errors).toContain("Setup needs an interactive terminal.");
+    });
+
+    it("--dry-run prints status of every step as done or todo and changes nothing", async () => {
+      const cleanHome = path.join(tempDir, "dry-run-clean");
+      fs.mkdirSync(cleanHome, { recursive: true });
+
+      const logs: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => logs.push(msg);
+
+      try {
+        await setupAction(
+          { dryRun: true },
+          {
+            homeDir: cleanHome,
+            platform: "linux",
+            unitDir: path.join(cleanHome, "systemd"),
+            nodeVersion: "24.22.0"
+          }
+        );
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(logs).toContain("1. Node >= 22.13: done");
+      expect(logs).toContain("2. Google credentials: todo");
+      expect(logs).toContain("3. Account: todo");
+      expect(logs).toContain("4. Extension: todo");
+      expect(logs).toContain("5. Auto-start: todo");
+      expect(logs).toContain("6. Doctor: todo");
+
+      // Verify nothing was written or created in cleanHome
+      const contents = fs.readdirSync(cleanHome);
+      expect(contents).toHaveLength(0);
+    });
+
+    it("--dry-run reports done when all steps are configured", async () => {
+      const configuredHome = path.join(tempDir, "dry-run-configured");
+      fs.mkdirSync(configuredHome, { recursive: true });
+
+      // Step 2: valid credentials
+      fs.writeFileSync(
+        path.join(configuredHome, "credentials.json"),
+        JSON.stringify({ installed: { client_id: "mock_id", client_secret: "mock_sec" } }),
+        { mode: 0o600 }
+      );
+
+      // Step 3: account connected
+      const store = new TokenStore(configuredHome);
+      await store.set("personal", { refreshToken: "mock_rt", email: "user@gmail.com", addedAt: Date.now() });
+
+      // Step 4: extension paired
+      const extId = getExtensionId();
+      saveConfig({ allowedOrigins: [`chrome-extension://${extId}`] }, configuredHome);
+
+      // Step 5: autootp.service
+      const unitDir = path.join(configuredHome, "systemd");
+      fs.mkdirSync(unitDir, { recursive: true });
+      fs.writeFileSync(path.join(unitDir, "autootp.service"), `AUTOOTP_HOME=${configuredHome}\n`);
+
+      // Write status file for doctor
+      writeStatus(
+        {
+          v: 1,
+          pid: process.pid,
+          version: "0.1.0",
+          startedAt: Date.now(),
+          updatedAt: Date.now(),
+          port: 47821,
+          authedClients: 1,
+          accounts: { personal: "ok" },
+          lastOtp: null
+        },
+        configuredHome
+      );
+
+      const logs: string[] = [];
+      const origLog = console.log;
+      console.log = (msg: string) => logs.push(msg);
+
+      try {
+        await setupAction(
+          { dryRun: true },
+          {
+            homeDir: configuredHome,
+            platform: "linux",
+            unitDir,
+            nodeVersion: "24.22.0",
+            fetchImpl: async () =>
+              new Response(JSON.stringify({ access_token: "at", expires_in: 3600 }), {
+                status: 200,
+                headers: { "Content-Type": "application/json" }
+              })
+          }
+        );
+      } finally {
+        console.log = origLog;
+      }
+
+      expect(logs).toContain("1. Node >= 22.13: done");
+      expect(logs).toContain("2. Google credentials: done");
+      expect(logs).toContain("3. Account: done");
+      expect(logs).toContain("4. Extension: done");
+      expect(logs).toContain("5. Auto-start: done");
+      expect(logs).toContain("6. Doctor: done");
+    });
+
+    it("runs a full happy path with mocked responses", async () => {
+      const downloadsDir = path.join(tempDir, "downloads");
+      fs.mkdirSync(downloadsDir, { recursive: true });
+      const credFile = path.join(downloadsDir, "client_secret_test.json");
+      fs.writeFileSync(
+        credFile,
+        JSON.stringify({ installed: { client_id: "client123", client_secret: "secret456" } })
+      );
+
+      // Mock user inputs:
+      // 1. Path to downloaded JSON -> enter "" (default)
+      // 2. Delete original? -> "n"
+      // 3. Account alias -> enter "" (default "personal")
+      // 4. Press Enter for extension pair -> enter ""
+      // 5. Start AutoOTP automatically at login? -> "y"
+      const { input, output, getRawOutput } = createInteractiveMock(["", "n", "", "", "y"]);
+
+      let loginCalled = false;
+      let enableCalled = false;
+      let doctorCalled = false;
+
+      const fakeLogin = async (alias: string) => {
+        loginCalled = true;
+        const s = new TokenStore(tempDir);
+        await s.set(alias, { refreshToken: "rt_123", email: "user@test.com", addedAt: Date.now() });
+      };
+
+      const fakeEnable = async () => {
+        enableCalled = true;
+      };
+
+      const fakeDoctor = async () => {
+        doctorCalled = true;
+      };
+
+      await setupAction(
+        { dryRun: false },
+        {
+          homeDir: tempDir,
+          isTTY: true,
+          input,
+          output,
+          downloadsDir,
+          loginFn: fakeLogin,
+          enableFn: fakeEnable,
+          doctorFn: fakeDoctor,
+          platform: "linux"
+        }
+      );
+
+      expect(loginCalled).toBe(true);
+      expect(enableCalled).toBe(true);
+      expect(doctorCalled).toBe(true);
+
+      // Verify credentials.json created with mode 0600
+      const credPath = path.join(tempDir, "credentials.json");
+      expect(fs.existsSync(credPath)).toBe(true);
+      expect(fs.statSync(credPath).mode & 0o777).toBe(0o600);
+
+      // Verify extension paired in config
+      const cfg = loadConfig(tempDir);
+      const extId = getExtensionId();
+      expect(cfg.allowedOrigins).toContain(`chrome-extension://${extId}`);
+
+      // Verify final note printed
+      const raw = getRawOutput();
+      expect(raw).toContain("Note: While the Google app is in Testing mode");
+    });
+
+    it("handles credentials missing then provided via custom path with mode 0600", async () => {
+      const customCredDir = path.join(tempDir, "custom-creds");
+      fs.mkdirSync(customCredDir, { recursive: true });
+      const customFile = path.join(customCredDir, "my-creds.json");
+      fs.writeFileSync(
+        customFile,
+        JSON.stringify({ installed: { client_id: "c_id", client_secret: "c_sec" } })
+      );
+
+      // In empty downloads dir: no default
+      const emptyDownloads = path.join(tempDir, "empty-downloads");
+      fs.mkdirSync(emptyDownloads, { recursive: true });
+
+      // Prompts: custom path, delete original "n", alias "", enter for extension "", auto-start "n"
+      const { input, output } = createInteractiveMock([customFile, "n", "", "", "n"]);
+
+      await setupAction(
+        { dryRun: false },
+        {
+          homeDir: tempDir,
+          isTTY: true,
+          input,
+          output,
+          downloadsDir: emptyDownloads,
+          loginFn: async (alias) => {
+            const s = new TokenStore(tempDir);
+            await s.set(alias, { refreshToken: "rt", email: "test@test.com", addedAt: Date.now() });
+          },
+          enableFn: async () => {},
+          doctorFn: async () => {},
+          platform: "linux"
+        }
+      );
+
+      const credPath = path.join(tempDir, "credentials.json");
+      expect(fs.existsSync(credPath)).toBe(true);
+      expect(fs.statSync(credPath).mode & 0o777).toBe(0o600);
+    });
+
+    it("rejects an invalid file then accepts a valid one", async () => {
+      const credsDir = path.join(tempDir, "creds-testing");
+      fs.mkdirSync(credsDir, { recursive: true });
+
+      const invalidFile = path.join(credsDir, "bad.json");
+      fs.writeFileSync(invalidFile, JSON.stringify({ web: { client_id: "123" } }));
+
+      const validFile = path.join(credsDir, "good.json");
+      fs.writeFileSync(
+        validFile,
+        JSON.stringify({ installed: { client_id: "id_ok", client_secret: "sec_ok" } })
+      );
+
+      // Prompts: invalidFile -> validFile -> delete "n" -> alias "" -> ext "" -> enable "n"
+      const { input, output, getRawOutput } = createInteractiveMock([
+        invalidFile,
+        validFile,
+        "n",
+        "",
+        "",
+        "n"
+      ]);
+
+      await setupAction(
+        { dryRun: false },
+        {
+          homeDir: tempDir,
+          isTTY: true,
+          input,
+          output,
+          loginFn: async (alias) => {
+            const s = new TokenStore(tempDir);
+            await s.set(alias, { refreshToken: "rt", email: "test@test.com", addedAt: Date.now() });
+          },
+          enableFn: async () => {},
+          doctorFn: async () => {},
+          platform: "linux"
+        }
+      );
+
+      const raw = getRawOutput();
+      expect(raw).toContain("Invalid credentials file:");
+      expect(fs.existsSync(path.join(tempDir, "credentials.json"))).toBe(true);
+    });
+
+    it("does not overwrite credentials.json without confirmation", async () => {
+      const credPath = path.join(tempDir, "credentials.json");
+      const originalData = JSON.stringify({
+        installed: { client_id: "ORIGINAL_ID" } // missing client_secret so step 2 triggers
+      });
+      fs.writeFileSync(credPath, originalData, { mode: 0o600 });
+
+      const otherFile = path.join(tempDir, "new_secret.json");
+      fs.writeFileSync(
+        otherFile,
+        JSON.stringify({ installed: { client_id: "NEW_ID", client_secret: "NEW_SEC" } })
+      );
+
+      // Overwrite prompt answer "n", delete prompt "n", alias "", ext "", enable "n"
+      const { input, output } = createInteractiveMock([otherFile, "n", "n", "", "", "n"]);
+
+      await setupAction(
+        { dryRun: false },
+        {
+          homeDir: tempDir,
+          isTTY: true,
+          input,
+          output,
+          loginFn: async (alias) => {
+            const s = new TokenStore(tempDir);
+            await s.set(alias, { refreshToken: "rt", email: "test@test.com", addedAt: Date.now() });
+          },
+          enableFn: async () => {},
+          doctorFn: async () => {},
+          platform: "linux"
+        }
+      );
+
+      const content = fs.readFileSync(credPath, "utf8");
+      expect(content).toContain("ORIGINAL_ID");
+      expect(content).not.toContain("NEW_ID");
+    });
+
+    it("skips already-done steps", async () => {
+      // Configure steps 1 to 5
+      fs.writeFileSync(
+        path.join(tempDir, "credentials.json"),
+        JSON.stringify({ installed: { client_id: "id", client_secret: "sec" } }),
+        { mode: 0o600 }
+      );
+      const store = new TokenStore(tempDir);
+      await store.set("personal", { refreshToken: "rt", email: "a@b.com", addedAt: Date.now() });
+      const extId = getExtensionId();
+      saveConfig({ allowedOrigins: [`chrome-extension://${extId}`] }, tempDir);
+
+      const unitDir = path.join(tempDir, "systemd");
+      fs.mkdirSync(unitDir, { recursive: true });
+      fs.writeFileSync(path.join(unitDir, "autootp.service"), `AUTOOTP_HOME=${tempDir}\n`);
+
+      // No prompts expected because all steps are done
+      const { input, output } = createInteractiveMock([]);
+
+      let doctorRan = false;
+      await setupAction(
+        { dryRun: false },
+        {
+          homeDir: tempDir,
+          isTTY: true,
+          input,
+          output,
+          unitDir,
+          doctorFn: async () => {
+            doctorRan = true;
+          },
+          platform: "linux"
+        }
+      );
+
+      expect(doctorRan).toBe(true);
+    });
+
+    it("cancels cleanly at prompt 1 (credentials path)", async () => {
+      const { input, output, getRawOutput } = createInteractiveMock([null]);
+      let exitCode: number | undefined;
+
+      await setupAction(
+        { dryRun: false },
+        {
+          homeDir: tempDir,
+          isTTY: true,
+          input,
+          output,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        }
+      );
+
+      expect(exitCode).toBe(1);
+      expect(getRawOutput()).toContain("Setup cancelled");
+    });
+
+    it("cancels cleanly at prompt 2 (overwrite confirm)", async () => {
+      fs.writeFileSync(
+        path.join(tempDir, "credentials.json"),
+        JSON.stringify({ installed: { client_id: "bad" } }) // invalid so step 2 triggers
+      );
+      const valid = path.join(tempDir, "valid.json");
+      fs.writeFileSync(valid, JSON.stringify({ installed: { client_id: "a", client_secret: "b" } }));
+
+      // Prompt 1 answer valid path, Prompt 2 cancel (null)
+      const { input, output, getRawOutput } = createInteractiveMock([valid, null]);
+      let exitCode: number | undefined;
+
+      await setupAction(
+        { dryRun: false },
+        {
+          homeDir: tempDir,
+          isTTY: true,
+          input,
+          output,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        }
+      );
+
+      expect(exitCode).toBe(1);
+      expect(getRawOutput()).toContain("Setup cancelled");
+    });
+
+    it("cancels cleanly at prompt 3 (delete confirm)", async () => {
+      const valid = path.join(tempDir, "valid.json");
+      fs.writeFileSync(valid, JSON.stringify({ installed: { client_id: "a", client_secret: "b" } }));
+
+      // Prompt 1 answer valid, Prompt 2 cancel (null)
+      const { input, output, getRawOutput } = createInteractiveMock([valid, null]);
+      let exitCode: number | undefined;
+
+      await setupAction(
+        { dryRun: false },
+        {
+          homeDir: tempDir,
+          isTTY: true,
+          input,
+          output,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        }
+      );
+
+      expect(exitCode).toBe(1);
+      expect(getRawOutput()).toContain("Setup cancelled");
+    });
+
+    it("cancels cleanly at prompt 4 (account alias)", async () => {
+      // Step 2 already done
+      fs.writeFileSync(
+        path.join(tempDir, "credentials.json"),
+        JSON.stringify({ installed: { client_id: "a", client_secret: "b" } }),
+        { mode: 0o600 }
+      );
+
+      // Cancel at account alias prompt
+      const { input, output, getRawOutput } = createInteractiveMock([null]);
+      let exitCode: number | undefined;
+
+      await setupAction(
+        { dryRun: false },
+        {
+          homeDir: tempDir,
+          isTTY: true,
+          input,
+          output,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        }
+      );
+
+      expect(exitCode).toBe(1);
+      expect(getRawOutput()).toContain("Setup cancelled");
+    });
+
+    it("cancels cleanly at prompt 5 (press enter for extension)", async () => {
+      // Steps 2 & 3 done
+      fs.writeFileSync(
+        path.join(tempDir, "credentials.json"),
+        JSON.stringify({ installed: { client_id: "a", client_secret: "b" } }),
+        { mode: 0o600 }
+      );
+      const store = new TokenStore(tempDir);
+      await store.set("personal", { refreshToken: "rt", email: "t@t.com", addedAt: Date.now() });
+
+      // Cancel at Enter prompt for extension
+      const { input, output, getRawOutput } = createInteractiveMock([null]);
+      let exitCode: number | undefined;
+
+      await setupAction(
+        { dryRun: false },
+        {
+          homeDir: tempDir,
+          isTTY: true,
+          input,
+          output,
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        }
+      );
+
+      expect(exitCode).toBe(1);
+      expect(getRawOutput()).toContain("Setup cancelled");
+    });
+
+    it("cancels cleanly at prompt 6 (auto-start prompt)", async () => {
+      // Steps 2, 3, 4 done
+      fs.writeFileSync(
+        path.join(tempDir, "credentials.json"),
+        JSON.stringify({ installed: { client_id: "a", client_secret: "b" } }),
+        { mode: 0o600 }
+      );
+      const store = new TokenStore(tempDir);
+      await store.set("personal", { refreshToken: "rt", email: "t@t.com", addedAt: Date.now() });
+      const extId = getExtensionId();
+      saveConfig({ allowedOrigins: [`chrome-extension://${extId}`] }, tempDir);
+
+      // Cancel at auto-start prompt
+      const { input, output, getRawOutput } = createInteractiveMock([null]);
+      let exitCode: number | undefined;
+
+      await setupAction(
+        { dryRun: false },
+        {
+          homeDir: tempDir,
+          isTTY: true,
+          input,
+          output,
+          platform: "linux",
+          exitImpl: (code) => {
+            exitCode = code;
+          }
+        }
+      );
+
+      expect(exitCode).toBe(1);
+      expect(getRawOutput()).toContain("Setup cancelled");
+    });
+
+    it("never leaks sentinel client_secret, refresh token, or codes; prints pair token exactly once", async () => {
+      const sentinelSecret = "SENTINEL_CLIENT_SECRET_9876543210";
+      const sentinelRefreshToken = "SENTINEL_REFRESH_TOKEN_abcdef12345";
+      const sentinelOtpCode = "849201";
+
+      const credFile = path.join(tempDir, "sentinel_creds.json");
+      fs.writeFileSync(
+        credFile,
+        JSON.stringify({ installed: { client_id: "cid", client_secret: sentinelSecret } })
+      );
+
+      const { input, output, getRawOutput } = createInteractiveMock([credFile, "n", "", "", "n"]);
+
+      const loggedMessages: string[] = [];
+      const origLog = console.log;
+      const origErr = console.error;
+      console.log = (msg: string) => loggedMessages.push(msg);
+      console.error = (msg: string) => loggedMessages.push(msg);
+
+      try {
+        await setupAction(
+          { dryRun: false },
+          {
+            homeDir: tempDir,
+            isTTY: true,
+            input,
+            output,
+            loginFn: async (alias) => {
+              const s = new TokenStore(tempDir);
+              // Save sentinel refresh token internally
+              await s.set(alias, {
+                refreshToken: sentinelRefreshToken,
+                email: "user@test.com",
+                addedAt: Date.now()
+              });
+            },
+            doctorFn: async () => {},
+            enableFn: async () => {},
+            platform: "linux"
+          }
+        );
+      } finally {
+        console.log = origLog;
+        console.error = origErr;
+      }
+
+      const raw = getRawOutput() + "\n" + loggedMessages.join("\n");
+
+      // Verify sentinels never appear in any output
+      expect(raw).not.toContain(sentinelSecret);
+      expect(raw).not.toContain(sentinelRefreshToken);
+      expect(raw).not.toContain(sentinelOtpCode);
+
+      // Verify pair token was generated and appears EXACTLY once
+      const pairToken = getOrCreatePairToken(tempDir);
+      const matches = raw.split(pairToken).length - 1;
+      expect(matches).toBe(1);
+      expect(raw).toContain("Paste this into the AutoOTP popup. Never share it.");
     });
   });
 });

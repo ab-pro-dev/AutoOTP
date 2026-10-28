@@ -21,18 +21,20 @@ export interface DoctorContext extends CommandContext {
   checkPortListening?: (port: number) => Promise<boolean>;
   exitImpl?: (code: number) => void;
   unitDir?: string;
+  silent?: boolean;
 }
 
 /**
  * Runs diagnostic checks on the AutoOTP system and reports OK / WARN / FAIL.
  * Exits with code 1 if any check is FAIL.
  */
-export async function doctorAction(context: DoctorContext = {}): Promise<void> {
+export async function doctorAction(context: DoctorContext = {}): Promise<boolean> {
   const homeDir = context.homeDir ?? getHomeDir();
   const platform = context.platform ?? process.platform;
   const execFn = context.execFn ?? defaultExecFile;
   const now = context.now ? context.now() : Date.now();
   const exit = context.exitImpl ?? process.exit;
+  const silent = context.silent ?? false;
 
   let hasFail = false;
 
@@ -40,7 +42,9 @@ export async function doctorAction(context: DoctorContext = {}): Promise<void> {
     if (status === "FAIL") {
       hasFail = true;
     }
-    console.log(`${status} ${message}`);
+    if (!silent) {
+      console.log(`${status} ${message}`);
+    }
   };
 
   // 1. Node version at least 22.13
@@ -226,9 +230,13 @@ export async function doctorAction(context: DoctorContext = {}): Promise<void> {
   }
 
   // 12. last line: version
-  console.log(`Version: ${VERSION}`);
+  if (!silent) {
+    console.log(`Version: ${VERSION}`);
+  }
 
-  if (hasFail) {
+  if (hasFail && !silent) {
     exit(1);
   }
+
+  return !hasFail;
 }

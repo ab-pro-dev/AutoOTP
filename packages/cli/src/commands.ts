@@ -291,6 +291,7 @@ export * from "./autostart.js";
 export * from "./doctor.js";
 export * from "./audit.js";
 export * from "./extension-path.js";
+export * from "./setup.js";
 
 
 

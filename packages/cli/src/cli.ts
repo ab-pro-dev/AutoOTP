@@ -17,6 +17,8 @@ import {
   doctorAction,
   auditAction,
   extensionPathAction,
+  extensionIdAction,
+  setupAction,
   CommandContext
 } from "./commands.js";
 
@@ -144,6 +146,21 @@ export function createProgram(context: CommandContext = {}): Command {
     .description("Print the absolute path to the browser extension directory")
     .action(async () => {
       await extensionPathAction(context);
+    });
+
+  program
+    .command("extension-id")
+    .description("Print the computed browser extension ID")
+    .action(async () => {
+      await extensionIdAction(context);
+    });
+
+  program
+    .command("setup")
+    .description("Interactive setup wizard for AutoOTP")
+    .option("--dry-run", "Print status of every step as done or todo without modifying anything", false)
+    .action(async (opts: { dryRun?: boolean }) => {
+      await setupAction(opts, context);
     });
 
   return program;
