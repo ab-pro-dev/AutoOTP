@@ -30,15 +30,37 @@ if (!sourceIcon) {
   process.exit(1);
 }
 
-const sizes = [16, 32, 48, 128];
+const pyScript = `
+from PIL import Image, ImageDraw
+import sys
 
-for (const size of sizes) {
-  const dest = path.join(outputDir, `icon-${size}.png`);
-  try {
-    execFileSync("convert", [sourceIcon, "-resize", `${size}x${size}`, dest]);
+source = sys.argv[1]
+output_dir = sys.argv[2]
+
+im = Image.open(source).convert('RGBA')
+cx, cy = 627, 617
+half_size = 320
+cropped = im.crop((cx - half_size, cy - half_size, cx + half_size, cy + half_size))
+ImageDraw.floodfill(cropped, (0, 0), (0, 0, 0, 0), thresh=20)
+ImageDraw.floodfill(cropped, (639, 0), (0, 0, 0, 0), thresh=20)
+ImageDraw.floodfill(cropped, (0, 639), (0, 0, 0, 0), thresh=20)
+ImageDraw.floodfill(cropped, (639, 639), (0, 0, 0, 0), thresh=20)
+
+for s in [16, 32, 48, 128]:
+    resized = cropped.resize((s, s), Image.Resampling.LANCZOS)
+    dest = f"{output_dir}/icon-{s}.png"
+    resized.save(dest)
+    print(f"Generated {s}x{s} icon: {dest}")
+`;
+
+try {
+  execFileSync("python3", ["-c", pyScript, sourceIcon, outputDir], { stdio: "inherit" });
+} catch {
+  // Fallback to ImageMagick if python3/PIL is not available
+  const sizes = [16, 32, 48, 128];
+  for (const size of sizes) {
+    const dest = path.join(outputDir, `icon-${size}.png`);
+    execFileSync("convert", [sourceIcon, "-resize", `${size}x${size}`, `PNG32:${dest}`]);
     console.log(`Generated ${size}x${size} icon: ${dest}`);
-  } catch (err) {
-    console.error(`Failed to resize icon with convert: ${err.message}`);
-    process.exit(1);
   }
 }
