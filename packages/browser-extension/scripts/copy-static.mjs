@@ -21,3 +21,9 @@ for (const file of filesToCopy) {
     throw new Error(`Static file not found: ${src}`);
   }
 }
+
+const iconsSrc = path.join(pkgRoot, "icons");
+const iconsDest = path.join(distExt, "icons");
+if (fs.existsSync(iconsSrc)) {
+  fs.cpSync(iconsSrc, iconsDest, { recursive: true });
+}

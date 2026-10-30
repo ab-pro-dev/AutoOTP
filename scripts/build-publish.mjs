@@ -73,13 +73,16 @@ export async function buildPublish(options = {}) {
     "utf8"
   );
 
-  // 2. Copy extension files (manifest.json, popup.html, *.js only; no .d.ts)
+  // 2. Copy extension files (manifest.json, popup.html, icons, *.js only; no .d.ts)
   const publishExtDir = path.join(publishDir, "extension");
   fs.mkdirSync(publishExtDir, { recursive: true });
   const extFiles = fs.readdirSync(extDistDir);
   for (const file of extFiles) {
-    if (file === "manifest.json" || file === "popup.html" || (file.endsWith(".js") && !file.endsWith(".d.ts"))) {
-      fs.copyFileSync(path.join(extDistDir, file), path.join(publishExtDir, file));
+    const fullPath = path.join(extDistDir, file);
+    if (fs.statSync(fullPath).isDirectory() && file === "icons") {
+      fs.cpSync(fullPath, path.join(publishExtDir, "icons"), { recursive: true });
+    } else if (file === "manifest.json" || file === "popup.html" || file.endsWith(".png") || (file.endsWith(".js") && !file.endsWith(".d.ts"))) {
+      fs.copyFileSync(fullPath, path.join(publishExtDir, file));
     }
   }
 
