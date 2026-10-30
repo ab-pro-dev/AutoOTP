@@ -6,6 +6,7 @@
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAySmH8uLT2k3uvwSU/t2qIN1RrISs2nzBOOXevNDFJ8pl39853yqFQZ+TkNRwgnqQ31U94xMbUIJCZfxcnRn315zCMEq3XH8orUjMpVfk74blM/vvZ90wsQQk+0/hdhzur/zY1L8IIAjCLxsPGjxULHTD7SyrQZ8FYQrMmeFSwPTBIx8jdNTp1v4GFiJCFNOprQhEQotadmNN8PpBuPkNJSuo/r812LaU+AbCkKFsua6o1M8PNHebPOMdF2JYhrEPE2mv4+x1SUt7lhadbaGKTkNZlj6Xfok51a3j1xySrqz/I5WDSeQXV3bRu/HcDxubshe9dmW+QkgHU7ivdq1LTwIDAQAB",
   "icons": {
     "16": "icons/icon-16.png",
+    "24": "icons/icon-24.png",
     "32": "icons/icon-32.png",
     "48": "icons/icon-48.png",
     "128": "icons/icon-128.png"
@@ -14,6 +15,7 @@
     "default_popup": "popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",
+      "24": "icons/icon-24.png",
       "32": "icons/icon-32.png",
       "48": "icons/icon-48.png",
       "128": "icons/icon-128.png"

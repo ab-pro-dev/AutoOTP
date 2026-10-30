@@ -46,7 +46,7 @@ ImageDraw.floodfill(cropped, (639, 0), (0, 0, 0, 0), thresh=20)
 ImageDraw.floodfill(cropped, (0, 639), (0, 0, 0, 0), thresh=20)
 ImageDraw.floodfill(cropped, (639, 639), (0, 0, 0, 0), thresh=20)
 
-for s in [16, 32, 48, 128]:
+for s in [16, 24, 32, 48, 128]:
     resized = cropped.resize((s, s), Image.Resampling.LANCZOS)
     dest = f"{output_dir}/icon-{s}.png"
     resized.save(dest)
@@ -57,7 +57,7 @@ try {
   execFileSync("python3", ["-c", pyScript, sourceIcon, outputDir], { stdio: "inherit" });
 } catch {
   // Fallback to ImageMagick if python3/PIL is not available
-  const sizes = [16, 32, 48, 128];
+  const sizes = [16, 24, 32, 48, 128];
   for (const size of sizes) {
     const dest = path.join(outputDir, `icon-${size}.png`);
     execFileSync("convert", [sourceIcon, "-resize", `${size}x${size}`, `PNG32:${dest}`]);

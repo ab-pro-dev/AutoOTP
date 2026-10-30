@@ -1270,12 +1270,12 @@ describe("Browser Extension Icons", () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const manifestPath = path.join(root, "manifest.json");
 
-  it("manifest.json defines icons and action.default_icon with 16, 32, 48, 128", () => {
+  it("manifest.json defines icons and action.default_icon with 16, 24, 32, 48, 128", () => {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
     expect(manifest.icons).toBeDefined();
     expect(manifest.action?.default_icon).toBeDefined();
 
-    for (const size of ["16", "32", "48", "128"]) {
+    for (const size of ["16", "24", "32", "48", "128"]) {
       expect(manifest.icons[size]).toBe(`icons/icon-${size}.png`);
       expect(manifest.action.default_icon[size]).toBe(`icons/icon-${size}.png`);
 
