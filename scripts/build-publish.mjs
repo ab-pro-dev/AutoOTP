@@ -4,7 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import esbuild from "esbuild";
 import { runScan } from "./scan-publish.mjs";
-import { verifyManifestFiles } from "../packages/browser-extension/scripts/verify-manifest.mjs";
+import { verifyManifestFiles, verifyNoBareSpecifiers } from "../packages/browser-extension/scripts/verify-manifest.mjs";
 
 export function generatePublishPackageJson(rootPkg) {
   return {
@@ -50,11 +50,9 @@ export async function buildPublish(options = {}) {
   const rootPkgPath = path.join(rootDir, "package.json");
   const rootPkg = JSON.parse(fs.readFileSync(rootPkgPath, "utf8"));
 
-  // Ensure extension is built
+  // Always build extension to ensure bundles are up to date and clean
   const extDistDir = path.join(rootDir, "packages/browser-extension/dist-ext");
-  if (!fs.existsSync(extDistDir) || !fs.existsSync(path.join(extDistDir, "manifest.json"))) {
-    execFileSync("npm", ["run", "build:ext"], { cwd: rootDir, stdio: "inherit" });
-  }
+  execFileSync("npm", ["run", "build:ext"], { cwd: rootDir, stdio: "inherit" });
 
   // Ensure workspace packages are built
   const cliDistDir = path.join(rootDir, "packages/cli/dist");
@@ -85,8 +83,9 @@ export async function buildPublish(options = {}) {
     }
   }
 
-  // Verify extension manifest files in publish/extension
+  // Verify extension manifest files and bundles in publish/extension
   verifyManifestFiles(publishExtDir);
+  verifyNoBareSpecifiers(publishExtDir);
 
   // 3. Copy documentation and license files
   const docsToCopy = ["README.md", "LICENSE", "SECURITY.md", "PRIVACY.md"];

@@ -1352,6 +1352,70 @@ describe("Browser Extension Manifest & File References", () => {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  it("verifyNoBareSpecifiers passes for dist-ext with no bare module specifiers", async () => {
+    const { verifyNoBareSpecifiers } = await import("../scripts/verify-manifest.mjs");
+    if (fs.existsSync(distExtPath)) {
+      const scanned = verifyNoBareSpecifiers(distExtPath);
+      expect(scanned).toContain("background.js");
+      expect(scanned).toContain("content.js");
+      expect(scanned).toContain("popup.js");
+    }
+  });
+
+  it("dist-ext bundles contain no @autootp/ substring at all (smoke check)", () => {
+    for (const f of ["background.js", "content.js", "popup.js"]) {
+      const full = path.join(distExtPath, f);
+      if (fs.existsSync(full)) {
+        const content = fs.readFileSync(full, "utf8");
+        expect(content).not.toContain("@autootp/");
+        expect(content).not.toContain("@autootp");
+      }
+    }
+  });
+
+  it("verifyNoBareSpecifiers detects and reports offending file and line for bare imports", async () => {
+    const { verifyNoBareSpecifiers, scanFileForBareSpecifiers } = await import("../scripts/verify-manifest.mjs");
+    const badCode = [
+      '// line 1',
+      'import { something } from "@autootp/shared/public-suffix";',
+      'import "./relative.js";',
+      'const lodash = require("lodash");',
+      'async function test() {',
+      '  const dyn = await import("bare-dynamic-pkg");',
+      '}'
+    ].join("\n");
+
+    const violations = scanFileForBareSpecifiers("test.js", badCode);
+    expect(violations.length).toBe(3);
+    expect(violations[0].line).toBe(2);
+    expect(violations[0].specifier).toBe("@autootp/shared/public-suffix");
+    expect(violations[1].line).toBe(4);
+    expect(violations[1].specifier).toBe("lodash");
+    expect(violations[2].line).toBe(6);
+    expect(violations[2].specifier).toBe("bare-dynamic-pkg");
+
+    const tempDir = fs.mkdtempSync(path.join(root, "temp-bare-spec-test-"));
+    try {
+      fs.writeFileSync(path.join(tempDir, "bad-bundle.js"), badCode);
+      expect(() => verifyNoBareSpecifiers(tempDir)).toThrowError(
+        /Found bare or non-relative module specifier\(s\) in/
+      );
+      try {
+        verifyNoBareSpecifiers(tempDir);
+        expect.fail("Should have thrown");
+      } catch (err: any) {
+        expect(err.message).toContain("bad-bundle.js:2");
+        expect(err.message).toContain("@autootp/shared/public-suffix");
+        expect(err.message).toContain("bad-bundle.js:4");
+        expect(err.message).toContain("lodash");
+        expect(err.message).toContain("bad-bundle.js:6");
+        expect(err.message).toContain("bare-dynamic-pkg");
+      }
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 
 

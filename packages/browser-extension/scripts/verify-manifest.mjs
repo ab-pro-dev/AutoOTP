@@ -124,6 +124,93 @@ export function verifyManifestFiles(dir) {
   return files;
 }
 
+/**
+ * Checks whether a module specifier is a bare / non-relative, non-builtin specifier.
+ * Relative specifiers (./, ../, /), URLs (http:, https:, data:), and node built-ins (node:) are not bare.
+ * Everything else (including @autootp/...) is considered bare.
+ * @param {string} specifier
+ * @returns {boolean}
+ */
+export function isBareSpecifier(specifier) {
+  if (!specifier || typeof specifier !== "string") return false;
+  const s = specifier.trim();
+  if (s.startsWith("./") || s.startsWith("../") || s.startsWith("/")) return false;
+  if (s.startsWith("http://") || s.startsWith("https://") || s.startsWith("data:")) return false;
+  if (s.startsWith("node:")) return false;
+  return true;
+}
+
+/**
+ * Scans a file's content for import/require of bare or non-relative module specifiers.
+ * @param {string} filePath
+ * @param {string} [content]
+ * @returns {Array<{ file: string, line: number, specifier: string, lineContent: string }>}
+ */
+export function scanFileForBareSpecifiers(filePath, content) {
+  const code = content !== undefined ? content : fs.readFileSync(filePath, "utf8");
+  const violations = [];
+  const lines = code.split("\n");
+
+  const patterns = [
+    /\b(?:import|export)\s+(?:[\s\S]*?\s+from\s+)?["']([^"']+)["']/g,
+    /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g,
+    /\brequire\s*\(\s*["']([^"']+)["']\s*\)/g
+  ];
+
+  for (const regex of patterns) {
+    let match;
+    while ((match = regex.exec(code)) !== null) {
+      const specifier = match[1];
+      if (isBareSpecifier(specifier)) {
+        const line = code.substring(0, match.index).split("\n").length;
+        const lineContent = lines[line - 1] ? lines[line - 1].trim() : "";
+        violations.push({
+          file: filePath,
+          line,
+          specifier,
+          lineContent
+        });
+      }
+    }
+  }
+
+  violations.sort((a, b) => a.line - b.line);
+  return violations;
+}
+
+/**
+ * Scans every *.js file in the directory for bare or non-relative specifiers.
+ * Fails with a clear error listing the offending file, line, and specifier.
+ * @param {string} dir
+ * @returns {string[]} List of scanned *.js files
+ */
+export function verifyNoBareSpecifiers(dir) {
+  if (!fs.existsSync(dir)) {
+    throw new Error(`Directory does not exist: ${dir}`);
+  }
+
+  const entries = fs.readdirSync(dir);
+  const jsFiles = entries.filter((f) => f.endsWith(".js"));
+  const violations = [];
+
+  for (const f of jsFiles) {
+    const full = path.join(dir, f);
+    const fileViolations = scanFileForBareSpecifiers(f, fs.readFileSync(full, "utf8"));
+    violations.push(...fileViolations);
+  }
+
+  if (violations.length > 0) {
+    const details = violations
+      .map((v) => `  - ${v.file}:${v.line} imports bare specifier "${v.specifier}" -> ${v.lineContent}`)
+      .join("\n");
+    throw new Error(
+      `Found bare or non-relative module specifier(s) in ${dir}:\n${details}`
+    );
+  }
+
+  return jsFiles;
+}
+
 // Standalone execution
 if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
   const targetDir = process.argv[2]
@@ -131,8 +218,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.a
     : path.resolve(__dirname, "../dist-ext");
 
   try {
-    const verified = verifyManifestFiles(targetDir);
-    console.log(`Manifest verified: all ${verified.length} referenced files exist in ${targetDir}`);
+    const verifiedManifest = verifyManifestFiles(targetDir);
+    console.log(`Manifest verified: all ${verifiedManifest.length} referenced files exist in ${targetDir}`);
+
+    const verifiedJs = verifyNoBareSpecifiers(targetDir);
+    console.log(`Bundle verified: all ${verifiedJs.length} .js files in ${targetDir} contain zero bare specifiers`);
   } catch (err) {
     console.error(err.message);
     process.exit(1);

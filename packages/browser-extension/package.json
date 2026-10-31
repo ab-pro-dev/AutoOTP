@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "build": "tsc",
-    "build:ext": "tsc && node scripts/bundle-content.mjs && node scripts/copy-static.mjs && node scripts/verify-manifest.mjs"
+    "build:ext": "tsc && node scripts/bundle.mjs && node scripts/copy-static.mjs && node scripts/verify-manifest.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.3.5",
