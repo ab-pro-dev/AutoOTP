@@ -5,8 +5,7 @@
   "private": true,
   "scripts": {
     "build": "tsc",
-    "build:ext": "tsc && node scripts/bundle-content.mjs && node scripts/copy-static.mjs",
-    "generate-icons": "node scripts/generate-icons.mjs"
+    "build:ext": "tsc && node scripts/bundle-content.mjs && node scripts/copy-static.mjs && node scripts/verify-manifest.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.3.5",

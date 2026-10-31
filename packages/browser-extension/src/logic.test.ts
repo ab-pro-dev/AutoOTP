@@ -1266,21 +1266,90 @@ describe("formatUsedFeedback", () => {
   });
 });
 
-describe("Browser Extension Icons", () => {
+describe("Browser Extension Manifest & File References", () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   const manifestPath = path.join(root, "manifest.json");
+  const distExtPath = path.join(root, "dist-ext");
 
-  it("manifest.json defines icons and action.default_icon with 16, 24, 32, 48, 128", () => {
+  it("manifest.json does not define icons or action.default_icon", () => {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-    expect(manifest.icons).toBeDefined();
-    expect(manifest.action?.default_icon).toBeDefined();
+    expect(manifest.icons).toBeUndefined();
+    expect(manifest.action?.default_icon).toBeUndefined();
+    expect(manifest.action?.default_popup).toBe("popup.html");
+    expect(manifest.background?.service_worker).toBe("background.js");
+    expect(manifest.content_scripts?.[0]?.js).toContain("content.js");
+  });
 
-    for (const size of ["16", "24", "32", "48", "128"]) {
-      expect(manifest.icons[size]).toBe(`icons/icon-${size}.png`);
-      expect(manifest.action.default_icon[size]).toBe(`icons/icon-${size}.png`);
+  it("verifyManifestFiles passes for dist-ext with no missing files", async () => {
+    const { verifyManifestFiles } = await import("../scripts/verify-manifest.mjs");
+    if (fs.existsSync(distExtPath) && fs.existsSync(path.join(distExtPath, "manifest.json"))) {
+      const verified = verifyManifestFiles(distExtPath);
+      expect(verified).toContain("popup.html");
+      expect(verified).toContain("background.js");
+      expect(verified).toContain("content.js");
+    }
+  });
 
-      const iconPath = path.join(root, manifest.icons[size]);
-      expect(fs.existsSync(iconPath), `Icon file ${iconPath} must exist`).toBe(true);
+  it("verifyManifestFiles fails with clear error listing missing files if manifest references non-existent files", async () => {
+    const { verifyManifestFiles, getReferencedFiles } = await import("../scripts/verify-manifest.mjs");
+    const tempDir = fs.mkdtempSync(path.join(root, "temp-manifest-test-"));
+    try {
+      const badManifest = {
+        manifest_version: 3,
+        name: "Test",
+        version: "1.0.0",
+        icons: {
+          "16": "assets/badge-16.png",
+          "48": "assets/missing-48.png"
+        },
+        action: {
+          default_popup: "popup.html",
+          default_icon: {
+            "32": "assets/badge-32.png"
+          }
+        },
+        background: {
+          service_worker: "missing-sw.js"
+        },
+        content_scripts: [
+          {
+            matches: ["https://*/*"],
+            js: ["missing-content.js"]
+          }
+        ]
+      };
+
+      const extracted = getReferencedFiles(badManifest);
+      expect(extracted).toEqual(
+        expect.arrayContaining([
+          "assets/badge-16.png",
+          "assets/missing-48.png",
+          "assets/badge-32.png",
+          "popup.html",
+          "missing-sw.js",
+          "missing-content.js"
+        ])
+      );
+
+      fs.writeFileSync(path.join(tempDir, "manifest.json"), JSON.stringify(badManifest));
+
+      expect(() => verifyManifestFiles(tempDir)).toThrowError(
+        /Extension manifest in .* references missing files:\n {2}- assets\/badge-16\.png/
+      );
+
+      try {
+        verifyManifestFiles(tempDir);
+        expect.fail("Should have thrown");
+      } catch (err: any) {
+        expect(err.message).toContain("assets/badge-16.png");
+        expect(err.message).toContain("assets/missing-48.png");
+        expect(err.message).toContain("assets/badge-32.png");
+        expect(err.message).toContain("popup.html");
+        expect(err.message).toContain("missing-sw.js");
+        expect(err.message).toContain("missing-content.js");
+      }
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
 });

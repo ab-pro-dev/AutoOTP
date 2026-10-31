@@ -285,24 +285,7 @@ async function configureAccessLevel(): Promise<void> {
   } catch {}
 }
 
-function updateActionIcon(): void {
-  try {
-    if (chrome.action?.setIcon) {
-      chrome.action.setIcon({
-        path: {
-          16: "icons/icon-16.png",
-          24: "icons/icon-24.png",
-          32: "icons/icon-32.png",
-          48: "icons/icon-48.png",
-          128: "icons/icon-128.png"
-        }
-      }).catch(() => {});
-    }
-  } catch {}
-}
-
 chrome.runtime.onInstalled.addListener(() => {
-  updateActionIcon();
   configureAccessLevel();
   chrome.alarms.create(ALARM_NAME, { periodInMinutes: 1 });
   connect();
@@ -490,6 +473,5 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
-updateActionIcon();
 configureAccessLevel();
 connect();

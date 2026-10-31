@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { execFileSync } from "node:child_process";
 import esbuild from "esbuild";
 import { runScan } from "./scan-publish.mjs";
+import { verifyManifestFiles } from "../packages/browser-extension/scripts/verify-manifest.mjs";
 
 export function generatePublishPackageJson(rootPkg) {
   return {
@@ -73,18 +74,19 @@ export async function buildPublish(options = {}) {
     "utf8"
   );
 
-  // 2. Copy extension files (manifest.json, popup.html, icons, *.js only; no .d.ts)
+  // 2. Copy extension files (manifest.json, popup.html, *.js only; no .d.ts)
   const publishExtDir = path.join(publishDir, "extension");
   fs.mkdirSync(publishExtDir, { recursive: true });
   const extFiles = fs.readdirSync(extDistDir);
   for (const file of extFiles) {
     const fullPath = path.join(extDistDir, file);
-    if (fs.statSync(fullPath).isDirectory() && file === "icons") {
-      fs.cpSync(fullPath, path.join(publishExtDir, "icons"), { recursive: true });
-    } else if (file === "manifest.json" || file === "popup.html" || file.endsWith(".png") || (file.endsWith(".js") && !file.endsWith(".d.ts"))) {
+    if (file === "manifest.json" || file === "popup.html" || (file.endsWith(".js") && !file.endsWith(".d.ts"))) {
       fs.copyFileSync(fullPath, path.join(publishExtDir, file));
     }
   }
+
+  // Verify extension manifest files in publish/extension
+  verifyManifestFiles(publishExtDir);
 
   // 3. Copy documentation and license files
   const docsToCopy = ["README.md", "LICENSE", "SECURITY.md", "PRIVACY.md"];

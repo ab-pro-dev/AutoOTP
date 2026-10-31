@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { verifyManifestFiles } from "./verify-manifest.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkgRoot = path.resolve(__dirname, "..");
@@ -22,8 +23,5 @@ for (const file of filesToCopy) {
   }
 }
 
-const iconsSrc = path.join(pkgRoot, "icons");
-const iconsDest = path.join(distExt, "icons");
-if (fs.existsSync(iconsSrc)) {
-  fs.cpSync(iconsSrc, iconsDest, { recursive: true });
-}
+// Verify that every file path referenced in dist-ext/manifest.json actually exists in dist-ext/
+verifyManifestFiles(distExt);
