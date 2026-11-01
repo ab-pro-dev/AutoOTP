@@ -21,7 +21,10 @@ export function generatePublishPackageJson(rootPkg) {
     ],
     homepage: "https://github.com/ab-pro-dev/AutoOTP",
     bugs: "https://github.com/ab-pro-dev/AutoOTP/issues",
-    repository: "git+https://github.com/ab-pro-dev/AutoOTP.git",
+    repository: {
+      type: "git",
+      url: "git+https://github.com/ab-pro-dev/AutoOTP.git"
+    },
     license: "MIT",
     author: "Abera Hagazi",
     type: "module",

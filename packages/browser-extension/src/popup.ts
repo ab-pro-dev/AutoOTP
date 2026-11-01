@@ -12,6 +12,8 @@ const statusText = document.getElementById("status-text");
 const tokenInput = document.getElementById("token-input") as HTMLInputElement | null;
 const saveBtn = document.getElementById("save-btn");
 const forgetBtn = document.getElementById("forget-btn");
+const pairedLabel = document.getElementById("paired-label");
+const tokenButtonRow = document.getElementById("token-button-row");
 const otpContainer = document.getElementById("otp-container");
 const otpText = document.getElementById("otp-text");
 const copyBtn = document.getElementById("copy-btn");
@@ -127,6 +129,18 @@ async function render(): Promise<void> {
       } else {
         noFieldNotice.style.display = "none";
       }
+    }
+
+    if (viewState.showTokenInput) {
+      if (tokenInput) tokenInput.style.display = "";
+      if (saveBtn) saveBtn.style.display = "";
+      if (pairedLabel) pairedLabel.style.display = "none";
+      if (tokenButtonRow) tokenButtonRow.classList.remove("paired-mode");
+    } else {
+      if (tokenInput) tokenInput.style.display = "none";
+      if (saveBtn) saveBtn.style.display = "none";
+      if (pairedLabel) pairedLabel.style.display = "inline";
+      if (tokenButtonRow) tokenButtonRow.classList.add("paired-mode");
     }
   } catch {}
 }

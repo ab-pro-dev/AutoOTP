@@ -3720,7 +3720,10 @@ describe("CLI utilities and commands", () => {
 
       expect(pubPkg.license).toBe("MIT");
       expect(pubPkg.author).toBe("Abera Hagazi");
-      expect(pubPkg.repository).toBe("git+https://github.com/ab-pro-dev/AutoOTP.git");
+      expect(pubPkg.repository).toEqual({
+        type: "git",
+        url: "git+https://github.com/ab-pro-dev/AutoOTP.git"
+      });
       expect(pubPkg.bugs).toBe("https://github.com/ab-pro-dev/AutoOTP/issues");
       expect(pubPkg.homepage).toBe("https://github.com/ab-pro-dev/AutoOTP");
       expect(pubPkg.description).toBeTruthy();

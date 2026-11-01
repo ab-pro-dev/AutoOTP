@@ -534,6 +534,9 @@ export interface ViewState {
   showUnverifiedWarning: boolean;
   hint: string | null;
   usedFeedback?: string | null;
+  showTokenInput: boolean;
+  tokenInputHidden?: boolean;
+  tokenInputVisible?: boolean;
 }
 
 /**
@@ -637,8 +640,25 @@ export function deriveViewState(params: DeriveViewStateParams): ViewState {
     fillLabel,
     showMismatchWarning,
     showUnverifiedWarning,
-    hint
+    hint,
+    showTokenInput: params.status !== "connected"
   };
+
+  Object.defineProperty(result, "tokenInputHidden", {
+    get() {
+      return !this.showTokenInput;
+    },
+    enumerable: false,
+    configurable: true
+  });
+
+  Object.defineProperty(result, "tokenInputVisible", {
+    get() {
+      return this.showTokenInput;
+    },
+    enumerable: false,
+    configurable: true
+  });
 
   const feedback = formatUsedFeedback(latest);
   if (feedback) {

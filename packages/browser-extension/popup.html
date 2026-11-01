@@ -163,6 +163,19 @@
     #forget-btn:hover:not(:disabled) {
       background: #e5e7eb;
     }
+    .paired-line {
+      font-size: 13px;
+      font-weight: 500;
+      color: #059669;
+    }
+    .button-row.paired-mode {
+      align-items: center;
+      justify-content: space-between;
+    }
+    .button-row.paired-mode #forget-btn {
+      flex: none;
+      padding: 6px 14px;
+    }
     #copy-btn {
       flex: none;
       background: #059669;
@@ -215,7 +228,8 @@
 
   <div class="token-form">
     <input type="password" id="token-input" placeholder="Paste pair token..." autocomplete="off" />
-    <div class="button-row">
+    <div class="button-row" id="token-button-row">
+      <span id="paired-label" class="paired-line" style="display: none;">Paired</span>
       <button id="save-btn" type="button">Save</button>
       <button id="forget-btn" type="button">Forget</button>
     </div>

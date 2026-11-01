@@ -24,6 +24,8 @@ import {
   validateFillMessage,
   FieldDescriptor,
   deriveViewState,
+  DeriveViewStateParams,
+  ConnectionStatus,
   formatUsedFeedback
 } from "./logic.js";
 
@@ -846,7 +848,8 @@ describe("deriveViewState", () => {
       fillLabel: "Fill",
       showMismatchWarning: false,
       showUnverifiedWarning: false,
-      hint: "AutoOTP isn't active on this page. Reload it, or it may not be an https page."
+      hint: "AutoOTP isn't active on this page. Reload it, or it may not be an https page.",
+      showTokenInput: false
     });
   });
 
@@ -877,7 +880,8 @@ describe("deriveViewState", () => {
       fillLabel: "Fill",
       showMismatchWarning: false,
       showUnverifiedWarning: false,
-      hint: "No code field found on this page"
+      hint: "No code field found on this page",
+      showTokenInput: false
     });
 
     // Even if domains mismatch, warning is false and hint is no field found
@@ -907,7 +911,8 @@ describe("deriveViewState", () => {
       fillLabel: "Fill",
       showMismatchWarning: false,
       showUnverifiedWarning: false,
-      hint: null
+      hint: null,
+      showTokenInput: false
     });
 
     // Subdomain matching registrable domain
@@ -938,7 +943,8 @@ describe("deriveViewState", () => {
       fillLabel: "Fill anyway",
       showMismatchWarning: true,
       showUnverifiedWarning: false,
-      hint: null
+      hint: null,
+      showTokenInput: false
     });
 
     const resMismatchedDomain = deriveViewState({
@@ -953,7 +959,8 @@ describe("deriveViewState", () => {
       fillLabel: "Fill anyway",
       showMismatchWarning: true,
       showUnverifiedWarning: false,
-      hint: null
+      hint: null,
+      showTokenInput: false
     });
 
     const resEvil = deriveViewState({
@@ -982,7 +989,8 @@ describe("deriveViewState", () => {
       fillLabel: "Fill",
       showMismatchWarning: false,
       showUnverifiedWarning: false,
-      hint: null
+      hint: null,
+      showTokenInput: false
     });
 
     const resStale = deriveViewState({
@@ -997,7 +1005,8 @@ describe("deriveViewState", () => {
       fillLabel: "Fill",
       showMismatchWarning: false,
       showUnverifiedWarning: false,
-      hint: null
+      hint: null,
+      showTokenInput: false
     });
 
     // Even on domain mismatch, if expired, warning is false and fillEnabled is false
@@ -1054,7 +1063,8 @@ describe("deriveViewState", () => {
       fillLabel: "Fill",
       showMismatchWarning: false,
       showUnverifiedWarning: false,
-      hint: null
+      hint: null,
+      showTokenInput: false
     });
 
     expect(
@@ -1069,7 +1079,8 @@ describe("deriveViewState", () => {
       fillLabel: "Fill anyway",
       showMismatchWarning: true,
       showUnverifiedWarning: false,
-      hint: null
+      hint: null,
+      showTokenInput: false
     });
 
     expect(
@@ -1084,7 +1095,8 @@ describe("deriveViewState", () => {
       fillLabel: "Fill",
       showMismatchWarning: false,
       showUnverifiedWarning: false,
-      hint: "No code field found on this page"
+      hint: "No code field found on this page",
+      showTokenInput: false
     });
 
     expect(
@@ -1099,7 +1111,8 @@ describe("deriveViewState", () => {
       fillLabel: "Fill",
       showMismatchWarning: false,
       showUnverifiedWarning: false,
-      hint: "AutoOTP isn't active on this page. Reload it, or it may not be an https page."
+      hint: "AutoOTP isn't active on this page. Reload it, or it may not be an https page.",
+      showTokenInput: false
     });
   });
 
@@ -1116,7 +1129,8 @@ describe("deriveViewState", () => {
       fillLabel: "Fill anyway",
       showMismatchWarning: false,
       showUnverifiedWarning: true,
-      hint: null
+      hint: null,
+      showTokenInput: false
     });
 
     // 2. mismatching domain, unverified -> showUnverifiedWarning: true, fillLabel: 'Fill anyway', showMismatchWarning: true
@@ -1131,7 +1145,8 @@ describe("deriveViewState", () => {
       fillLabel: "Fill anyway",
       showMismatchWarning: true,
       showUnverifiedWarning: true,
-      hint: null
+      hint: null,
+      showTokenInput: false
     });
 
     // 3. matching domain, verified true -> showUnverifiedWarning: false, fillLabel: 'Fill', showMismatchWarning: false
@@ -1146,7 +1161,8 @@ describe("deriveViewState", () => {
       fillLabel: "Fill",
       showMismatchWarning: false,
       showUnverifiedWarning: false,
-      hint: null
+      hint: null,
+      showTokenInput: false
     });
 
     // 4. field not present, unverified -> showUnverifiedWarning: false
@@ -1177,6 +1193,34 @@ describe("deriveViewState", () => {
     });
     expect(resExpired.showUnverifiedWarning).toBe(false);
     expect(resExpired.fillEnabled).toBe(false);
+  });
+
+  it("asserts the token input is hidden exactly when status === 'connected' and shown otherwise", () => {
+    const baseParams: DeriveViewStateParams = {
+      status: "connected",
+      latest: makeLatest(),
+      tab: makeTab(),
+      askFirst: false
+    };
+
+    // When status is "connected", token input is hidden (showTokenInput is false)
+    const connectedState = deriveViewState({ ...baseParams, status: "connected" });
+    expect(connectedState.showTokenInput).toBe(false);
+    expect(connectedState.tokenInputHidden).toBe(true);
+
+    // When status is anything other than "connected", token input is shown (showTokenInput is true)
+    const otherStatuses: ConnectionStatus[] = [
+      "not_paired",
+      "connecting",
+      "token_rejected",
+      "service_not_running"
+    ];
+
+    for (const status of otherStatuses) {
+      const state = deriveViewState({ ...baseParams, status });
+      expect(state.showTokenInput).toBe(true);
+      expect(state.tokenInputHidden).toBe(false);
+    }
   });
 });
 
