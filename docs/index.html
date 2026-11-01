@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AutoOTP - Automated OTP Autofill for Gmail</title>
+  <meta name="description" content="Automated one-time password (OTP) detection and autofill for Gmail. Local-first, privacy-focused 2FA automation.">
+  <style>
+    :root {
+      --bg: #ffffff;
+      --text: #1f2937;
+      --text-muted: #4b5563;
+      --heading: #111827;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --border: #e5e7eb;
+      --card-bg: #f8fafc;
+      --code-bg: #f1f5f9;
+      --code-text: #0f172a;
+      --pre-bg: #0f172a;
+      --pre-text: #f8fafc;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f172a;
+        --text: #e2e8f0;
+        --text-muted: #94a3b8;
+        --heading: #f8fafc;
+        --primary: #3b82f6;
+        --primary-hover: #60a5fa;
+        --border: #334155;
+        --card-bg: #1e293b;
+        --code-bg: #1e293b;
+        --code-text: #f1f5f9;
+        --pre-bg: #020617;
+        --pre-text: #f8fafc;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      background-color: var(--bg);
+      color: var(--text);
+      padding: 0 1.25rem 4rem;
+    }
+
+    .container {
+      max-width: 780px;
+      margin: 0 auto;
+    }
+
+    header {
+      padding: 2rem 0 1.5rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 2.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .brand {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--heading);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .brand-badge {
+      display: inline-block;
+      width: 28px;
+      height: 28px;
+      line-height: 28px;
+      background: var(--primary);
+      color: #ffffff;
+      border-radius: 6px;
+      text-align: center;
+      font-size: 1rem;
+      font-weight: bold;
+    }
+
+    nav {
+      display: flex;
+      gap: 1.25rem;
+      align-items: center;
+    }
+
+    nav a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 0.95rem;
+      transition: color 0.15s ease;
+    }
+
+    nav a:hover, nav a.active {
+      color: var(--primary);
+    }
+
+    .hero {
+      text-align: center;
+      padding: 1.5rem 0 2.5rem;
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 800;
+      color: var(--heading);
+      letter-spacing: -0.025em;
+      margin-bottom: 0.75rem;
+    }
+
+    .tagline {
+      font-size: 1.25rem;
+      color: var(--text-muted);
+      max-width: 600px;
+      margin: 0 auto 1.75rem;
+    }
+
+    .cta-group {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 0.75rem 1.5rem;
+      border-radius: 8px;
+      font-weight: 600;
+      text-decoration: none;
+      transition: background-color 0.15s ease;
+      font-size: 1rem;
+    }
+
+    .btn-primary {
+      background-color: var(--primary);
+      color: #ffffff;
+    }
+
+    .btn-primary:hover {
+      background-color: var(--primary-hover);
+    }
+
+    .btn-secondary {
+      background-color: var(--card-bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+
+    .btn-secondary:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+
+    section {
+      margin-top: 3rem;
+    }
+
+    h2 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--heading);
+      margin-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem;
+    }
+
+    h3 {
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--heading);
+      margin: 1.25rem 0 0.5rem;
+    }
+
+    p {
+      margin-bottom: 1rem;
+    }
+
+    ul, ol {
+      margin-left: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    li {
+      margin-bottom: 0.4rem;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.9em;
+      background-color: var(--code-bg);
+      color: var(--code-text);
+      padding: 0.15rem 0.35rem;
+      border-radius: 4px;
+    }
+
+    pre {
+      background-color: var(--pre-bg);
+      color: var(--pre-text);
+      padding: 1rem 1.25rem;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.9rem;
+      line-height: 1.5;
+      margin: 1rem 0 1.5rem;
+    }
+
+    pre code {
+      background: none;
+      color: inherit;
+      padding: 0;
+    }
+
+    .card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin: 1rem 0;
+    }
+
+    a {
+      color: var(--primary);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    a:hover {
+      color: var(--primary-hover);
+    }
+
+    footer {
+      margin-top: 4rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.875rem;
+    }
+
+    footer nav {
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <a href="index.html" class="brand">
+        <span class="brand-badge">A</span>
+        <span>AutoOTP</span>
+      </a>
+      <nav>
+        <a href="index.html" class="active">Home</a>
+        <a href="privacy.html">Privacy Policy</a>
+        <a href="https://github.com/ab-pro-dev/AutoOTP" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <div class="hero">
+        <h1>AutoOTP</h1>
+        <p class="tagline">Automated one-time password (OTP) detection and autofill for Gmail.</p>
+        <div class="cta-group">
+          <a href="#install" class="btn btn-primary">Get Started</a>
+          <a href="privacy.html" class="btn btn-secondary">Privacy Policy</a>
+          <a href="https://github.com/ab-pro-dev/AutoOTP" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">View on GitHub</a>
+        </div>
+      </div>
+
+      <section id="what-it-does">
+        <h2>What it does</h2>
+        <p>
+          AutoOTP monitors your Gmail inbox in real time for incoming two-factor authentication (2FA) codes and one-time passwords.
+        </p>
+        <p>
+          When a code arrives, AutoOTP verifies the sender domain against the active website tab in your Chromium-based browser and automatically fills the code into the verification input form on matching verified domains, or provides a one-click manual fill button when sender verification requires confirmation.
+        </p>
+      </section>
+
+      <section id="how-it-works">
+        <h2>How it works</h2>
+        <pre><code>Gmail API -> background service -> local WebSocket -> browser extension -> page</code></pre>
+        <ul>
+          <li><strong>Gmail API:</strong> Connects securely to Gmail via read-only Google OAuth (<code>gmail.readonly</code>) to inspect incoming verification messages.</li>
+          <li><strong>Background service:</strong> Runs locally, scores candidate OTPs, inspects DMARC authentication results, logs masked diagnostic events, and persists encrypted history according to retention settings.</li>
+          <li><strong>Local WebSocket:</strong> Dispatches real-time OTP events over <code>127.0.0.1:47821</code> protected by an extension pairing secret, origin checks, and connection limits.</li>
+          <li><strong>Browser extension:</strong> Background worker receives the event, inspects the active browser tab, and compares the sender domain to the page hostname.</li>
+          <li><strong>Page:</strong> If the sender domain matches the page hostname and DMARC passes, a content script fills the input field on secure HTTPS pages; otherwise, manual fill remains available via the popup.</li>
+        </ul>
+      </section>
+
+      <section id="requirements">
+        <h2>Requirements</h2>
+        <ul>
+          <li><strong>Node.js:</strong> Version &gt;= 22.13</li>
+          <li><strong>Browser:</strong> A Chromium-based browser (Google Chrome, Brave, Microsoft Edge, Chromium)</li>
+          <li><strong>Google Account:</strong> A Google account with access to Google Cloud Console to create Desktop OAuth credentials</li>
+          <li><strong>Linux:</strong> Fully supported and verified with systemd user services</li>
+          <li><strong>macOS:</strong> Experimental (background service can be run manually or via launchd; built-in auto-start <code>enable</code> command is Linux-only)</li>
+          <li><strong>Windows:</strong> Foreground execution supported; no Windows auto-start service is available</li>
+        </ul>
+      </section>
+
+      <section id="install">
+        <h2>Install</h2>
+        <p>Install globally via npm:</p>
+        <pre><code>npm install -g autootp</code></pre>
+        <p>Or run directly without global installation using <code>npx autootp</code>.</p>
+      </section>
+
+      <section id="quick-start">
+        <h2>Quick start</h2>
+        <p>Run the interactive setup wizard:</p>
+        <pre><code>autootp setup</code></pre>
+        <p>The wizard guides you step-by-step through environment checks, Google Cloud credentials configuration, Gmail account connection, extension pairing, and service activation.</p>
+      </section>
+
+      <section id="privacy-security">
+        <h2>Privacy & Security Model</h2>
+        <div class="card">
+          <p>
+            <strong>Local-first & Zero Telemetry:</strong> AutoOTP operates entirely on your computer. All email processing happens locally in ephemeral memory. Network calls are made exclusively to official Google APIs. There are no tracking scripts, analytics, or third-party servers.
+          </p>
+          <p>
+            For complete details on data handling, encryption, storage, and deletion, please review our <a href="privacy.html">Privacy Policy</a>.
+          </p>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <nav>
+        <a href="index.html">Home</a>
+        <a href="privacy.html">Privacy Policy</a>
+        <a href="https://github.com/ab-pro-dev/AutoOTP" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+      </nav>
+      <p>Copyright &copy; 2026 Abera Hagazi. Released under the MIT License.</p>
+    </footer>
+  </div>
+</body>
+</html>

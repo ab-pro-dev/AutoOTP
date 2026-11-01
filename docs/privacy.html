@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy - AutoOTP</title>
+  <meta name="description" content="Privacy Policy for AutoOTP. Detailed documentation of data access, local processing, local storage, security, and data deletion.">
+  <style>
+    :root {
+      --bg: #ffffff;
+      --text: #1f2937;
+      --text-muted: #4b5563;
+      --heading: #111827;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --border: #e5e7eb;
+      --card-bg: #f8fafc;
+      --code-bg: #f1f5f9;
+      --code-text: #0f172a;
+      --pre-bg: #0f172a;
+      --pre-text: #f8fafc;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f172a;
+        --text: #e2e8f0;
+        --text-muted: #94a3b8;
+        --heading: #f8fafc;
+        --primary: #3b82f6;
+        --primary-hover: #60a5fa;
+        --border: #334155;
+        --card-bg: #1e293b;
+        --code-bg: #1e293b;
+        --code-text: #f1f5f9;
+        --pre-bg: #020617;
+        --pre-text: #f8fafc;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+      background-color: var(--bg);
+      color: var(--text);
+      padding: 0 1.25rem 4rem;
+    }
+
+    .container {
+      max-width: 780px;
+      margin: 0 auto;
+    }
+
+    header {
+      padding: 2rem 0 1.5rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 2.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .brand {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--heading);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .brand-badge {
+      display: inline-block;
+      width: 28px;
+      height: 28px;
+      line-height: 28px;
+      background: var(--primary);
+      color: #ffffff;
+      border-radius: 6px;
+      text-align: center;
+      font-size: 1rem;
+      font-weight: bold;
+    }
+
+    nav {
+      display: flex;
+      gap: 1.25rem;
+      align-items: center;
+    }
+
+    nav a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 0.95rem;
+      transition: color 0.15s ease;
+    }
+
+    nav a:hover, nav a.active {
+      color: var(--primary);
+    }
+
+    h1 {
+      font-size: 2.25rem;
+      font-weight: 800;
+      color: var(--heading);
+      letter-spacing: -0.025em;
+      margin-bottom: 1rem;
+    }
+
+    .lead {
+      font-size: 1.15rem;
+      color: var(--text-muted);
+      margin-bottom: 2rem;
+    }
+
+    section {
+      margin-top: 2.5rem;
+    }
+
+    h2 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--heading);
+      margin-bottom: 1rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.5rem;
+    }
+
+    p {
+      margin-bottom: 1rem;
+    }
+
+    ul, ol {
+      margin-left: 1.5rem;
+      margin-bottom: 1rem;
+    }
+
+    li {
+      margin-bottom: 0.6rem;
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.9em;
+      background-color: var(--code-bg);
+      color: var(--code-text);
+      padding: 0.15rem 0.35rem;
+      border-radius: 4px;
+    }
+
+    pre {
+      background-color: var(--pre-bg);
+      color: var(--pre-text);
+      padding: 0.85rem 1.1rem;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.9rem;
+      line-height: 1.5;
+      margin: 0.5rem 0 1rem;
+    }
+
+    pre code {
+      background: none;
+      color: inherit;
+      padding: 0;
+    }
+
+    a {
+      color: var(--primary);
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    a:hover {
+      color: var(--primary-hover);
+    }
+
+    footer {
+      margin-top: 4rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.875rem;
+    }
+
+    footer nav {
+      justify-content: center;
+      margin-bottom: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <a href="index.html" class="brand">
+        <span class="brand-badge">A</span>
+        <span>AutoOTP</span>
+      </a>
+      <nav>
+        <a href="index.html">Home</a>
+        <a href="privacy.html" class="active">Privacy Policy</a>
+        <a href="https://github.com/ab-pro-dev/AutoOTP" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <h1>Privacy Policy</h1>
+      <p class="lead">
+        AutoOTP is built with a local-first, privacy-focused design. Your data remains on your computer under your control.
+      </p>
+
+      <section id="what-data-is-read">
+        <h2>What Data Is Read</h2>
+        <ul>
+          <li><strong>Gmail Messages:</strong> AutoOTP requests access solely using the read-only Gmail OAuth scope (<code>https://www.googleapis.com/auth/gmail.readonly</code>).</li>
+          <li><strong>Local Message Processing:</strong> Incoming messages are fetched and parsed entirely on your local machine to extract verification codes. To decide auto-fill, only the DMARC result from Gmail's <code>Authentication-Results</code> header is evaluated; SPF and DKIM values are present in the header but not independently checked by AutoOTP.</li>
+          <li><strong>Ephemeral In-Memory Handling:</strong> Full message bodies and email contents are processed in memory and immediately discarded. Raw email contents are never stored on disk or transmitted outside your computer.</li>
+        </ul>
+      </section>
+
+      <section id="what-is-stored">
+        <h2>What Is Stored on Your Machine and for How Long</h2>
+        <p>AutoOTP stores its application data in <code>~/.autootp</code> (or <code>$AUTOOTP_HOME</code>):</p>
+        <ul>
+          <li><code>credentials.json</code>: Your downloaded Google Cloud OAuth client credentials (saved with restrictive permissions <code>0600</code>).</li>
+          <li><code>tokens.enc</code> &amp; <code>key</code>: Google OAuth refresh tokens encrypted with AES-256-GCM. Stored until you remove the account (<code>autootp remove &lt;alias&gt;</code>) or delete the data directory.</li>
+          <li><code>history.db</code>: An encrypted local SQLite database storing recently detected OTPs. Records are automatically purged according to your configured <code>historyRetention</code> setting (<code>5m</code> by default; options: <code>off</code>, <code>5m</code>, <code>30m</code>, <code>1h</code>). You can immediately wipe all history using <code>autootp clear</code>.</li>
+          <li><code>status.json</code>: A transient status file containing the background service PID, port, active client count, and the sender domain/timestamp of the last detected OTP. It <strong>never</strong> contains OTP codes, tokens, or email bodies. This file is removed when the service shuts down cleanly.</li>
+          <li><code>logs/</code> (macOS only): Background service output is redirected to <code>~/.autootp/logs/service.log</code> when run via macOS launchd (with codes masked). On Linux, service output goes to the systemd user journal (view with <code>journalctl --user -u autootp.service</code>), not to a file in <code>~/.autootp/logs/</code>. In all non-terminal logs, detected OTP codes are replaced with <code>******</code>.</li>
+          <li><code>pair.token</code>: A per-installation pairing secret used by the browser extension to authenticate with the local WebSocket server.</li>
+          <li><code>config.json</code>: Local user configuration and paired extension IDs.</li>
+        </ul>
+      </section>
+
+      <section id="what-is-sent-anywhere">
+        <h2>What Is Sent Anywhere</h2>
+        <ul>
+          <li><strong>Google APIs Only:</strong> Network requests are sent exclusively to official Google endpoints (<code>oauth2.googleapis.com</code> for token exchange/refresh and <code>gmail.googleapis.com</code> for reading emails).</li>
+          <li><strong>No Telemetry or Tracking:</strong> AutoOTP contains <strong>no analytics</strong>, <strong>no tracking</strong>, <strong>no telemetry</strong>, and <strong>no crash reporting</strong>.</li>
+          <li><strong>No External Servers:</strong> There are no proxy servers, backend APIs, or remote services operated by the author or third parties. All communication between the background service and browser extension occurs strictly over the local loopback interface (<code>127.0.0.1</code>).</li>
+        </ul>
+      </section>
+
+      <section id="how-to-delete-everything">
+        <h2>How to Delete Everything</h2>
+        <p>To completely remove all AutoOTP data, credentials, and installed components:</p>
+
+        <ol>
+          <li>
+            <p><strong>Revoke and remove accounts:</strong></p>
+            <pre><code>autootp remove &lt;alias&gt;</code></pre>
+            <p>(Repeat for each connected account to revoke tokens with Google and delete local credentials).</p>
+          </li>
+          <li>
+            <p><strong>Clear OTP history:</strong></p>
+            <pre><code>autootp clear</code></pre>
+          </li>
+          <li>
+            <p><strong>Disable and remove background service:</strong></p>
+            <pre><code>autootp disable</code></pre>
+            <p>(Removes <code>~/.config/systemd/user/autootp.service</code> on Linux).</p>
+          </li>
+          <li>
+            <p><strong>Delete data directory:</strong></p>
+            <pre><code>rm -rf ~/.autootp</code></pre>
+            <p>(Removes all local configuration, keys, encrypted tokens, database, and logs).</p>
+          </li>
+          <li>
+            <p><strong>Remove the browser extension:</strong></p>
+            <p>Open <code>chrome://extensions</code>, locate <strong>AutoOTP</strong>, and click <strong>Remove</strong>.</p>
+          </li>
+          <li>
+            <p><strong>Uninstall the package:</strong></p>
+            <pre><code>npm uninstall -g autootp</code></pre>
+          </li>
+        </ol>
+      </section>
+
+      <section id="why-permissions-needed">
+        <h2>Why the Extension Needs Each Permission</h2>
+        <p>The browser extension declares only two permissions in its <code>manifest.json</code>:</p>
+        <ul>
+          <li><code>"storage"</code>: Used to store user preferences and the local WebSocket pairing token in <code>chrome.storage.local</code>.</li>
+          <li><code>"alarms"</code>: Used to schedule periodic heartbeat timers so the background service worker maintains an active connection to the local service.</li>
+          <li><strong>Content Scripts on <code>https://*/*</code>:</strong> Injected exclusively on secure HTTPS web pages to detect two-factor authentication / OTP input fields and fill verified codes. The extension never runs on plain unencrypted HTTP pages.</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer>
+      <nav>
+        <a href="index.html">Home</a>
+        <a href="privacy.html">Privacy Policy</a>
+        <a href="https://github.com/ab-pro-dev/AutoOTP" target="_blank" rel="noopener noreferrer">GitHub Repository</a>
+      </nav>
+      <p>Copyright &copy; 2026 Abera Hagazi. Released under the MIT License.</p>
+    </footer>
+  </div>
+</body>
+</html>
