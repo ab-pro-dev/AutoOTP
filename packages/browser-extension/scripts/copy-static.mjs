@@ -23,5 +23,11 @@ for (const file of filesToCopy) {
   }
 }
 
+const iconsSrc = path.join(pkgRoot, "icons");
+const iconsDest = path.join(distExt, "icons");
+if (fs.existsSync(iconsSrc)) {
+  fs.cpSync(iconsSrc, iconsDest, { recursive: true });
+}
+
 // Verify that every file path referenced in dist-ext/manifest.json actually exists in dist-ext/
 verifyManifestFiles(distExt);

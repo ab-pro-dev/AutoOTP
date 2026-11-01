@@ -86,6 +86,12 @@ export async function buildPublish(options = {}) {
     }
   }
 
+  // Copy extension icons to publish/extension/icons
+  const extIconsSrc = path.join(extDistDir, "icons");
+  if (fs.existsSync(extIconsSrc)) {
+    fs.cpSync(extIconsSrc, path.join(publishExtDir, "icons"), { recursive: true });
+  }
+
   // Verify extension manifest files and bundles in publish/extension
   verifyManifestFiles(publishExtDir);
   verifyNoBareSpecifiers(publishExtDir);

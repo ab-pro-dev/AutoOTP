@@ -1315,10 +1315,12 @@ describe("Browser Extension Manifest & File References", () => {
   const manifestPath = path.join(root, "manifest.json");
   const distExtPath = path.join(root, "dist-ext");
 
-  it("manifest.json does not define icons or action.default_icon", () => {
+  it("manifest.json defines icons and action.default_icon", () => {
     const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-    expect(manifest.icons).toBeUndefined();
-    expect(manifest.action?.default_icon).toBeUndefined();
+    expect(manifest.icons).toBeDefined();
+    expect(manifest.icons["16"]).toBe("icons/icon-16.png");
+    expect(manifest.icons["128"]).toBe("icons/icon-128.png");
+    expect(manifest.action?.default_icon).toBeDefined();
     expect(manifest.action?.default_popup).toBe("popup.html");
     expect(manifest.background?.service_worker).toBe("background.js");
     expect(manifest.content_scripts?.[0]?.js).toContain("content.js");
@@ -1331,6 +1333,8 @@ describe("Browser Extension Manifest & File References", () => {
       expect(verified).toContain("popup.html");
       expect(verified).toContain("background.js");
       expect(verified).toContain("content.js");
+      expect(verified).toContain("icons/icon-16.png");
+      expect(verified).toContain("icons/icon-128.png");
     }
   });
 
